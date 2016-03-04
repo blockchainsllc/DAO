@@ -40,17 +40,17 @@ contract DAOInterface {
     // list of addresses the DAO is allowed to send money to
     address[] public allowedRecipients;
 
-    // only used for splits, give DAOs without a balance the privilege to access their share of the rewards
-    // conceptually, rewardTokens represents a share of right to receive rewards that arise from the already spent fund.
+    // only used for splits, give DAOs without a balance the privilege to access their portion of the rewards
+    // conceptually, reward token represents the right to receive rewards that arise from the already spent fund.
     mapping (address => uint) public rewardToken;
-    // sum of all rewardToken
+    // sum of all reward token
     uint public totalRewardToken;
 
     // account used to manage the rewards which are to be distributed to the
     // DAO Token Holders (and reward token holders) separately, so they don't appear in `this.balance`
     ManagedAccount public rewardAccount;
-    // amount of wei already payed out to a certain member address
-    mapping (address => uint) public payedOut;
+    // amount of wei already paid out to a certain member address
+    mapping (address => uint) public paidOut;
 
     // deposit in wei to be held for each proposal
     uint public proposalDeposit;
@@ -84,9 +84,9 @@ contract DAOInterface {
         SplitData[] splitData;
         // Array holding all votes that have taken place on the proposal
         Vote[] votes;
-        // Simple mapping to check if a shareholder has already cast a vote
+        // Simple mapping to check if a token holder has already cast a vote
         mapping (address => bool) voted;
-        // Address of the shareholder who created the proposal
+        // Address of the token holder who created the proposal
         address creator;
     }
 
@@ -109,7 +109,7 @@ contract DAOInterface {
         address voter;
     }
 
-    modifier onlyShareholders {}
+    modifier onlyTokenholders {}
 
     /// @dev Constructor setting the default service provider and the address for the contract able
     ///      to create another DAO as well as the parameters for the DAO Token Sale
@@ -135,7 +135,7 @@ contract DAOInterface {
     /// @param _debatingPeriod The time used for debating the proposal, at least 2 weeks.
     /// @param _newServiceProvider A bool defining whether this proposal is about a new service provider or not
     /// @return The proposal ID. Needed for voting on the proposal
-    function newProposal(address _recipient, uint _amount, string _description, bytes _transactionBytecode, uint _debatingPeriod, bool _newServiceProvider) onlyShareholders returns (uint _proposalID);
+    function newProposal(address _recipient, uint _amount, string _description, bytes _transactionBytecode, uint _debatingPeriod, bool _newServiceProvider) onlyTokenholders returns (uint _proposalID);
 
     /// @notice Check that the proposal with the ID `_proposalID` matches a transaction which sends `_amount` with data `_transactionBytecode` to `_recipient`
     /// @param _proposalID The proposal ID
@@ -149,7 +149,7 @@ contract DAOInterface {
     /// @param _proposalID The proposal ID
     /// @param _supportsProposal Yes/No - support of the proposal
     /// @return The vote ID.
-    function vote(uint _proposalID, bool _supportsProposal) onlyShareholders returns (uint _voteID);
+    function vote(uint _proposalID, bool _supportsProposal) onlyTokenholders returns (uint _voteID);
 
     /// @notice Checks whether proposal `_proposalID` with transaction data `_transactionBytecode` has been voted for or rejected,
     ///         and executes the transaction in the case it has been voted for.
@@ -191,8 +191,8 @@ contract DAOInterface {
 // The DAO contract itself
 contract DAO is DAOInterface, Token, TokenSale {
 
-    // modifier that allows only shareholders to vote and create new proposals
-    modifier onlyShareholders {
+    // modifier that allows only token holders to vote and create new proposals
+    modifier onlyTokenholders {
         if (balanceOf(msg.sender) == 0) throw;
             _
     }
@@ -225,7 +225,7 @@ contract DAO is DAOInterface, Token, TokenSale {
     }
 
 
-    function newProposal(address _recipient, uint _amount, string _description, bytes _transactionBytecode, uint _debatingPeriod, bool _newServiceProvider) onlyShareholders returns (uint _proposalID){
+    function newProposal(address _recipient, uint _amount, string _description, bytes _transactionBytecode, uint _debatingPeriod, bool _newServiceProvider) onlyTokenholders returns (uint _proposalID){
         // check sanity
         if (_newServiceProvider && (_amount != 0 || _transactionBytecode.length != 0 || _recipient == serviceProvider || msg.value > 0 || _debatingPeriod < 1 weeks)) {
             throw;
@@ -260,7 +260,7 @@ contract DAO is DAOInterface, Token, TokenSale {
     }
 
 
-    function vote(uint _proposalID, bool _supportsProposal) onlyShareholders noEther returns (uint _voteID) {
+    function vote(uint _proposalID, bool _supportsProposal) onlyTokenholders noEther returns (uint _voteID) {
         Proposal p = proposals[_proposalID];
         if (p.voted[msg.sender] || now >= p.votingDeadline) throw;
 
@@ -325,7 +325,7 @@ contract DAO is DAOInterface, Token, TokenSale {
     }
 
 
-    function confirmNewServiceProvider(uint _proposalID, address _newServiceProvider) noEther onlyShareholders returns (bool _success) {
+    function confirmNewServiceProvider(uint _proposalID, address _newServiceProvider) noEther onlyTokenholders returns (bool _success) {
         Proposal p = proposals[_proposalID];
 
         // sanity check
@@ -366,16 +366,16 @@ contract DAO is DAOInterface, Token, TokenSale {
 
 
     function getMyReward() noEther external {
-        // my share of the rewardToken of this DAO, or when called by a split child DAO, their portion of the rewardToken.
-        uint myShareOfTheReward = (balanceOf(msg.sender) * rewardToken[address(this)]) / totalSupply + rewardToken[msg.sender];
-        uint myReward = (myShareOfTheReward * rewardAccount.accumulatedInput()) / totalRewardToken - payedOut[msg.sender];
+        // my portion of the rewardToken of this DAO, or when called by a split child DAO, their portion of the rewardToken.
+        uint myPortionOfTheReward = (balanceOf(msg.sender) * rewardToken[address(this)]) / totalSupply + rewardToken[msg.sender];
+        uint myReward = (myPortionOfTheReward * rewardAccount.accumulatedInput()) / totalRewardToken - paidOut[msg.sender];
         if (!rewardAccount.payOut(msg.sender, myReward)) throw;
-        payedOut[msg.sender] += myReward;
+        paidOut[msg.sender] += myReward;
     }
 
 
     function transfer(address _to, uint256 _value) returns (bool success) {
-        if (funded && now > closingTime && transferPayedOut(msg.sender, _to, _value) && super.transfer(_to, _value)){
+        if (funded && now > closingTime && transferPaidOut(msg.sender, _to, _value) && super.transfer(_to, _value)){
             return true;
         }
         else throw;
@@ -383,18 +383,18 @@ contract DAO is DAOInterface, Token, TokenSale {
 
 
     function transferFrom(address _from, address _to, uint256 _value) returns (bool success) {
-        if (funded && now > closingTime && transferPayedOut(_from, _to, _value) && super.transferFrom(_from, _to, _value)){
+        if (funded && now > closingTime && transferPaidOut(_from, _to, _value) && super.transferFrom(_from, _to, _value)){
             return true;
         }
         else throw;
     }
 
 
-    function transferPayedOut(address _from, address _to, uint256 _value) internal returns (bool success){
-        uint transferPayedOut = payedOut[_from] * _value / balanceOf(_from);
-        if (transferPayedOut > payedOut[_from]) throw;
-        payedOut[_from] -= transferPayedOut;
-        payedOut[_to] += transferPayedOut;
+    function transferPaidOut(address _from, address _to, uint256 _value) internal returns (bool success){
+        uint transferPaidOut = paidOut[_from] * _value / balanceOf(_from);
+        if (transferPaidOut > paidOut[_from]) throw;
+        paidOut[_from] -= transferPaidOut;
+        paidOut[_to] += transferPaidOut;
         return true;
     }
 
