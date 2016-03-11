@@ -74,7 +74,7 @@ contract TokenInterface {
     event Approval(
         address indexed _owner, 
         address indexed _spender, 
-        uint256 _amount
+        uint256 _amount,
     );
 }
 
