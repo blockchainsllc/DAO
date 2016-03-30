@@ -720,7 +720,7 @@ contract DAO is DAOInterface, Token, TokenSale {
 
     function createNewDAO(address _newServiceProvider) internal returns (DAO _newDAO) {
         NewServiceProvider(_newServiceProvider);
-        return daoCreator.createDAO(_newServiceProvider, 0, now + 42 days);
+        return daoCreator.createDAO(_newServiceProvider, 0, now);
     }
 
 
