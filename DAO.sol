@@ -319,7 +319,7 @@ contract DAO is DAOInterface, Token, TokenSale {
 
         serviceProvider = _defaultServiceProvider;
         daoCreator = _daoCreator;
-        proposalDeposit = 20 ether;
+        proposalDeposit = 0 ether;
         rewardAccount = new ManagedAccount(address(this));
         if (address(rewardAccount) == 0)
             throw;
