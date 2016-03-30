@@ -400,7 +400,6 @@ contract DAO is DAOInterface, Token, TokenSale {
         if (_newServiceProvider)
             p.splitData.length++;
         p.creator = msg.sender;
-        p.proposalDeposit = msg.value;
         ProposalAdded(
             _proposalID,
             _recipient,
@@ -544,10 +543,7 @@ contract DAO is DAOInterface, Token, TokenSale {
             // Call depth limit reached, etc.
             if (address(p.splitData[0].newDAO) == 0)
                 throw;
-            // p.proposalDeposit should be zero here
-            if (this.balance < p.proposalDeposit)
-                throw;
-            p.splitData[0].splitBalance = this.balance - p.proposalDeposit;
+            p.splitData[0].splitBalance = this.balance;
             p.splitData[0].rewardToken = rewardToken[address(this)];
             p.splitData[0].totalSupply = totalSupply;
             p.proposalPassed = true;
