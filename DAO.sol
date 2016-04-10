@@ -244,8 +244,14 @@ contract DAOInterface {
     /// @notice Add a new possible recipient `_recipient` to the whitelist so
     /// that the DAO can send transactions to them (using proposals)
     /// @param _recipient New recipient address
-    /// @dev Can only be called by the current service provider
+    /// @dev Can only be called by the current guardian
     function addAllowedAddress(address _recipient) external returns (bool _success);
+
+    /// @notice Remove a `_malicious` recipient from the whitelist so that
+    /// it can no longer receive money from the DAO.
+    /// @param _malicious recipient address for removal
+    /// @dev Can only be called by the current guardian
+    function removeAllowedAddress(address _malicious) external returns (bool _success);
 
     /// @notice Change the minimum deposit required to submit a proposal
     /// @param _proposalDeposit The new proposal deposit
@@ -484,6 +490,8 @@ contract DAO is DAOInterface, Token, TokenSale {
         if (now < p.votingDeadline  // has the voting deadline arrived?
             // Have the votes been counted?
             || !p.open
+            // is the recipient still on the whitelist?
+            || isRecipientAllowed(p.recipient)
             // Does the transaction code match the proposal?
             || p.proposalHash != sha3(p.recipient, p.amount, _transactionData)) {
 
@@ -730,6 +738,14 @@ contract DAO is DAOInterface, Token, TokenSale {
         if (msg.sender != guardian)
             throw;
         allowedRecipients[_recipient] = true;
+        return true;
+    }
+
+
+    function removeAllowedAddress(address _malicious) noEther external returns (bool _success) {
+        if (msg.sender != guardian)
+            throw;
+        allowedRecipients[_malicious] = false;
         return true;
     }
 
