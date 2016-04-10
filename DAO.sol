@@ -491,7 +491,6 @@ contract DAO is DAOInterface, Token, TokenSale {
         }
 
         if (p.newServiceProvider) {
-            p.open = false;
             return;
         }
 
