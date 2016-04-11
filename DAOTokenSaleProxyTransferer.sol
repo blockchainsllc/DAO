@@ -15,6 +15,7 @@ You should have received a copy of the GNU lesser General Public License
 along with the DAO.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+
 /*
 By default, token purchases can be executed on behalf of another address using the TokenSale.sol buyTokenProxy() function
 This contract is used as a fall back in case an exchange doesn't implement the "add data to a transaction" feature in a timely manner, preventing it from calling buyTokenProxy().

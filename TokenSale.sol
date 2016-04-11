@@ -17,7 +17,8 @@ along with the DAO.  If not, see <http://www.gnu.org/licenses/>.
 
 
 /*
-Token Sale contract, used by the DAO to sell its tokens and initialize its fund
+Token Sale contract, used by the DAO to sell its tokens and initialize its ether.
+Feel free to modify the divisor method to implement different Token sale parameters 
 */
 
 import "./Token.sol";
@@ -27,9 +28,9 @@ contract TokenSaleInterface {
 
     // End of token sale, in Unix time
     uint public closingTime;
-    // Minimum funding goal of the token sale, denominated in tokens
+    // Minimum fueling goal of the token sale, denominated in ether
     uint public minValue;
-    // True if the DAO reached its minimum funding goal, false otherwise
+    // True if the DAO reached its minimum fueling goal, false otherwise
     bool public isFunded;
     // For DAO splits - if privateSale is 0, then it is a public sale, otherwise
     // only the address stored in privateSale is allowed to purchase tokens
@@ -39,9 +40,9 @@ contract TokenSaleInterface {
     // tracks the amount of wei given from each contributor (used for refund)
     mapping (address => uint256) weiGiven;
 
-    /// @dev Constructor setting the minimum funding goal and the
+    /// @dev Constructor setting the minimum fueling goal and the
     /// end of the Token Sale
-    /// @param _minValue Token Sale minimum funding goal
+    /// @param _minValue Token Sale minimum fueling goal
     /// @param _closingTime Date (in Unix time) of the end of the Token Sale
     /// @param _privateSale Zero means that the sale is public.  A non-zero
     /// address represents the only address that can buy Tokens (the address
@@ -59,7 +60,7 @@ contract TokenSaleInterface {
     function buyTokenProxy(address _tokenHolder) returns (bool success);
 
     /// @notice Refund `msg.sender` in the case the Token Sale didn't reach its
-    /// minimum funding goal
+    /// minimum fueling goal
     function refund();
 
     /// @return The divisor used to calculate the token price during the sale
@@ -116,7 +117,7 @@ contract TokenSale is TokenSaleInterface, Token {
     function divisor() returns (uint divisor) {
         // The number of (base unit) tokens per wei is calculated
         // as `msg.value` * 20 / `divisor`
-        // The funding period starts with a 1:1 ratio
+        // The fueling period starts with a 1:1 ratio
         if (closingTime - 2 weeks > now) {
             return 20;
         // Followed by 10 days with a daily price increase of 5%
