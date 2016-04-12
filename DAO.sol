@@ -260,6 +260,11 @@ contract DAOInterface {
     /// @return Whether successful or not
     function changeAllowedRecipients(address _recipient, bool _allowed) external returns (bool _success);
 
+    /// @notice Only used in case of of throwing functions when executing a proposal.
+    /// This can happen when the fallback function of the p.creator throws, or the called
+    /// function in p.recipient. In this case all tokens which have voted would be frozen forever
+    function emergenyProposalClosing(uint _proposalID) external returns (bool _success);
+
 
     /// @notice Change the minimum deposit required to submit a proposal
     /// @param _proposalDeposit The new proposal deposit
@@ -772,6 +777,17 @@ contract DAO is DAOInterface, Token, TokenSale {
         if (msg.sender != curator)
             throw;
         allowedRecipients[_recipient] = _allowed;
+        return true;
+    }
+
+
+    function emergenyProposalClosing(uint _proposalID) noEther external returns (bool _success) {
+        Proposal p = proposals[_proposalID];
+        if (msg.sender != curator || now < p.votingDeadline + 7 days)
+            throw;
+
+        sumOfProposalDeposits -= p.proposalDeposit;
+        p.open = false;
         return true;
     }
 
