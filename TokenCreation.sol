@@ -29,6 +29,8 @@ contract TokenCreationInterface {
 
     // End of token creation, in Unix time
     uint public closingTime;
+    // Total amount of WEI sent to the contract during the Creation Phase
+    uint totalWeiGiven;
     // Minimum fueling goal of the token creation, denominated in ether
     uint public minValue;
     // True if the DAO reached its minimum fueling goal, false otherwise
@@ -89,12 +91,13 @@ contract TokenCreation is TokenCreationInterface, Token {
             && (privateCreation == 0 || privateCreation == msg.sender)) {
 
             uint token = (msg.value * 20) / divisor();
+            totalWeiGiven += msg.value;
             extraBalance.call.value(msg.value - token)();
             balances[_tokenHolder] += token;
             totalSupply += token;
             weiGiven[_tokenHolder] += msg.value;
             CreatedToken(_tokenHolder, token);
-            if (totalSupply >= minValue && !isFueled) {
+            if (totalWeiGiven >= minValue && !isFueled) {
                 isFueled = true;
                 FuelingToDate(totalSupply);
             }
