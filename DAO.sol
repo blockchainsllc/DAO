@@ -379,7 +379,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
 
     function () returns (bool success) {
         if (now < closingTime + creationGracePeriod && msg.sender != address(extraBalance))
-            return createTokenProxy(msg.sender);
+            return createTokenProxy(msg.sender, false);
         else
             return receiveEther();
     }
@@ -480,6 +480,12 @@ contract DAO is DAOInterface, Token, TokenCreation {
             || now >= p.votingDeadline) {
 
             throw;
+        }
+
+        // in the case a nonVoter votes, make him a voter
+        if (nonVoters[msg.sender]) {
+            nonVoters[msg.sender] = false;
+            totalNumOfNonVoter -= balances[msg.sender];
         }
 
         if (_supportsProposal) {
@@ -631,7 +637,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
         uint fundsToBeMoved =
             (balances[msg.sender] * p.splitData[0].splitBalance) /
             p.splitData[0].totalSupply;
-        if (p.splitData[0].newDAO.createTokenProxy.value(fundsToBeMoved)(msg.sender) == false)
+        if (p.splitData[0].newDAO.createTokenProxy.value(fundsToBeMoved)(msg.sender, false) == false)
             throw;
 
 
@@ -657,6 +663,8 @@ contract DAO is DAOInterface, Token, TokenCreation {
         Transfer(msg.sender, 0, balances[msg.sender]);
         withdrawRewardFor(msg.sender); // be nice, and get his rewards
         totalSupply -= balances[msg.sender];
+        if (nonVoters[msg.sender])
+            totalNumOfNonVoter -= balances[msg.sender];
         balances[msg.sender] = 0;
         paidOut[msg.sender] = 0;
         return true;
@@ -722,6 +730,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
             && now > closingTime
             && !isBlocked(msg.sender)
             && transferPaidOut(msg.sender, _to, _value)
+            && transferVotingStatus(msg.sender, _to, _value)
             && super.transfer(_to, _value)) {
 
             return true;
@@ -743,12 +752,23 @@ contract DAO is DAOInterface, Token, TokenCreation {
             && now > closingTime
             && !isBlocked(_from)
             && transferPaidOut(_from, _to, _value)
+            && transferVotingStatus(_from, _to, _value)
             && super.transferFrom(_from, _to, _value)) {
 
             return true;
         } else {
             throw;
         }
+    }
+
+    function transferVotingStatus(address _from, address _to, uint256 _value) internal returns (bool success) {
+        if (nonVoters[_from] && !nonVoters[_to]){
+            totalNumOfNonVoter -= _value;
+        }
+        else if (!nonVoters[_from] && nonVoters[_to]){
+            totalNumOfNonVoter += _value;
+        }
+        return true;
     }
 
 
@@ -815,11 +835,25 @@ contract DAO is DAOInterface, Token, TokenCreation {
 
 
     function minQuorum(uint _value) internal constant returns (uint _minQuorum) {
+        uint maxVoters = totalSupply - totalNumOfNonVoter;
         // minimum of 20% and maximum of 53.33%
-        return totalSupply / minQuorumDivisor +
-            (_value * totalSupply) / (3 * (actualBalance() + rewardToken[address(this)]));
+        return maxVoters / minQuorumDivisor +
+            (_value * maxVoters) / (3 * (actualBalance() + rewardToken[address(this)]));
     }
 
+    function iAmANonVoter() onlyTokenholders {
+        if (nonVoters[msg.sender] == false) {
+            nonVoters[msg.sender] = true;
+            totalNumOfNonVoter += balances[msg.sender];
+        }
+    }
+
+    function iAmAVoter() onlyTokenholders {
+        if (nonVoters[msg.sender] == true) {
+            nonVoters[msg.sender] = false;
+            totalNumOfNonVoter -= balances[msg.sender];
+        }
+    }
 
     function halveMinQuorum() returns (bool _success) {
         // this can only be called after `quorumHalvingPeriod` has passed or at anytime

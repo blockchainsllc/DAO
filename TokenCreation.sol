@@ -44,6 +44,10 @@ contract TokenCreationInterface {
     // tracks the amount of wei given from each contributor (used for refund)
     mapping (address => uint256) weiGiven;
 
+    // total number of non-voter tokens
+    uint public totalNumOfNonVoter;
+    mapping (address => bool) public nonVoters;
+
     /// @dev Constructor setting the minimum fueling goal and the
     /// end of the Token Creation
     /// @param _minTokensToCreate Minimum fueling goal in number of
@@ -62,7 +66,7 @@ contract TokenCreationInterface {
     /// @notice Create Token with `_tokenHolder` as the initial owner of the Token
     /// @param _tokenHolder The address of the Tokens's recipient
     /// @return Whether the token creation was successful
-    function createTokenProxy(address _tokenHolder) returns (bool success);
+    function createTokenProxy(address _tokenHolder, bool _nonVoter) returns (bool success);
 
     /// @notice Refund `msg.sender` in the case the Token Creation did
     /// not reach its minimum fueling goal
@@ -90,7 +94,7 @@ contract TokenCreation is TokenCreationInterface, Token {
         extraBalance = new ManagedAccount(address(this), true);
     }
 
-    function createTokenProxy(address _tokenHolder) returns (bool success) {
+    function createTokenProxy(address _tokenHolder, bool _nonVoter) returns (bool success) {
         if (now < closingTime && msg.value > 0
             && (privateCreation == 0 || privateCreation == msg.sender)) {
 
@@ -99,6 +103,10 @@ contract TokenCreation is TokenCreationInterface, Token {
             balances[_tokenHolder] += token;
             totalSupply += token;
             weiGiven[_tokenHolder] += msg.value;
+            if (_nonVoter){
+                nonVoters[_tokenHolder] = true;
+                totalNumOfNonVoter += token;
+            }
             CreatedToken(_tokenHolder, token);
             if (totalSupply >= minTokensToCreate && !isFueled) {
                 isFueled = true;
