@@ -39,6 +39,7 @@ contract SampleOffer {
     DAO client; // address of DAO
 
     bool public promiseValid;
+    bool public isOpenSource;
     uint public rewardDivisor;
     uint public deploymentReward;
 
@@ -54,6 +55,12 @@ contract SampleOffer {
 
     modifier onlyClient {
         if (msg.sender != address(client))
+            throw;
+        _
+    }
+
+    modifier onlyContractor {
+        if (msg.sender != contractor)
             throw;
         _
     }
@@ -77,14 +84,20 @@ contract SampleOffer {
         deploymentReward = _deploymentReward;
     }
 
-    function sign() {
+    function sign(bool expectsOpenSource) {
         if (msg.value < totalCosts || dateOfSignature != 0)
             throw;
         if (!contractor.send(oneTimeCosts))
             throw;
+        if (expectsOpenSource && !isOpenSource)
+            throw;
         client = DAO(msg.sender);
         dateOfSignature = now;
         promiseValid = true;
+    }
+    
+    function promiseOpenSource() onlyContractor {
+        isOpenSource = true;
     }
 
     function setDailyCosts(uint _dailyCosts) onlyClient {
