@@ -75,7 +75,7 @@ if __name__ == "__main__":
     )
     p.add_argument(
         '--curator',
-        default="0x08144824954c65b12f68b75072488e634ac4e67a",  # Griff testnet
+        default="0x0f9B5B4646215E05fBedBdBB0244e198249Da962",  # Bill testnet etherbase
         help='Account to set as the curator'
     )
     p.add_argument(
