@@ -44,6 +44,7 @@ class TestContext():
         if not os.path.isdir(datadir) or args.clean_chain:
             self.clean_blockchain()
             self.create_accounts(args.users_num)
+            self.init_blockchain()
         else:
             self.attemptLoad()
 
@@ -59,7 +60,8 @@ class TestContext():
         with open('accounts.js', "w") as f:
             f.write(s)
         output = self.run_script('accounts.js')
-        self.accounts = json.loads(output)
+        print(output)
+        self.accounts = json.loads(output.decode())
         # creating genesis block with a generous allocation for all accounts
         create_genesis(self.accounts)
         print("Done!")
@@ -92,6 +94,22 @@ class TestContext():
         rm_file(os.path.join(data_dir, "nodekey"))
         rm_file(os.path.join(data_dir, "saved"))
 
+    def init_blockchain(self):
+        return subprocess.check_output([
+                self.geth,
+                "--networkid",
+                "123",
+                "--nodiscover",
+                "--maxpeers",
+                "0",
+                "--datadir",
+                "./data",
+                "--verbosity",
+                "0",
+                "init",
+                "./genesis_block.json"
+            ])
+
     def run_script(self, script):
         if script == 'accounts.js':
             return subprocess.check_output([
@@ -117,8 +135,6 @@ class TestContext():
                 "--nodiscover",
                 "--maxpeers",
                 "0",
-                "--genesis",
-                "./genesis_block.json",
                 "--datadir",
                 "./data",
                 "--verbosity",
@@ -136,7 +152,7 @@ class TestContext():
             "--combined-json",
             "abi,bin"
         ])
-        return json.loads(data)
+        return json.loads(data.decode())
 
     def compile_contracts(self, keep_limits):
         if not self.solc:

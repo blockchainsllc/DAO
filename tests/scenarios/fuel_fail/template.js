@@ -6,7 +6,7 @@ for (i = 0; i < eth.accounts.length; i++) {
     web3.eth.sendTransaction({
         from:eth.accounts[i],
         to: dao.address,
-        gas:200000,
+        gas:1000000,
         value:web3.toWei(amounts[i], "ether")
     });
 }
@@ -25,20 +25,20 @@ setTimeout(function() {
         eth_balance_before_refund.push(web3.fromWei(eth.getBalance(eth.accounts[i])));
     }
     addToTest('eth_balance_before_refund', eth_balance_before_refund);
-    
+
     for (i = 0; i < eth.accounts.length; i++) {
         dao.refund.sendTransaction({
             from:eth.accounts[i],
-            gas:200000
-        }); 
+            gas:1000000
+        });
     }
     checkWork();
     // try to ask for a refund again and see if we get more (we shouldn't)
     for (i = 0; i < eth.accounts.length; i++) {
         dao.refund.sendTransaction({
             from:eth.accounts[i],
-            gas:200000
-        }); 
+            gas:1000000
+        });
     }
     checkWork();
     var eth_balance_after_refund = [];

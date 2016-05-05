@@ -8,7 +8,7 @@ for (i = 0; i < eth.accounts.length; i++) {
         eth.accounts[eth.accounts.length - 1 - i],
         {
         from:eth.accounts[i],
-        gas:200000,
+        gas:1000000,
         value:web3.toWei(proxy_amounts[i], "ether")
     });
 }
@@ -16,7 +16,7 @@ for (i = 0; i < eth.accounts.length; i++) {
     web3.eth.sendTransaction({
         from:eth.accounts[i],
         to: dao.address,
-        gas:200000,
+        gas:1000000,
         value:web3.toWei(normal_amounts[i], "ether")
     });
 }
@@ -39,7 +39,7 @@ setTimeout(function() {
     for (i = 0; i < eth.accounts.length; i++) {
         dao.refund.sendTransaction({
             from:eth.accounts[i],
-            gas:200000
+            gas:1000000
         });
     }
     checkWork();
@@ -47,7 +47,7 @@ setTimeout(function() {
     for (i = 0; i < eth.accounts.length; i++) {
         dao.refund.sendTransaction({
             from:eth.accounts[i],
-            gas:200000
+            gas:1000000
         });
     }
     checkWork();

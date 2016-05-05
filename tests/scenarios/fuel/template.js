@@ -1,12 +1,11 @@
 var amounts = $amounts;
-
 var dao = web3.eth.contract($dao_abi).at('$dao_address');
 console.log("Creating DAO tokens");
 for (i = 0; i < eth.accounts.length; i++) {
     web3.eth.sendTransaction({
         from:eth.accounts[i],
         to: dao.address,
-        gas:200000,
+        gas:1000000,
         value:web3.toWei(amounts[i], "ether")
     });
 }
@@ -30,7 +29,7 @@ setTimeout(function() {
     dao.createTokenProxy.sendTransaction(eth.accounts[0],{
         from:eth.accounts[0],
         to: dao.address,
-        gas:200000,
+        gas:1000000,
         value:web3.toWei(20, "ether")
     });
     // and confirm balance is still the same

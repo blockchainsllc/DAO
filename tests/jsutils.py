@@ -5,7 +5,7 @@ def js_common_intro(accounts_num):
     """Common  functions, variables to add to all js scripts"""
     s = "console.log('unlocking accounts');\n"
     for i in range(0, accounts_num):
-        s += "personal.unlockAccount(eth.accounts[{}], '123');\n".format(i)
+        s += "personal.unlockAccount(eth.accounts[{}], '123', 1800);\n".format(i)
     s += """// set the basic accounts, coinbase should be random so mining rewards don't pollute results
 var curator = eth.accounts[0];
 var proposalCreator = eth.accounts[1];

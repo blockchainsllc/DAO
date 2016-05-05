@@ -5,7 +5,7 @@
     "type": "int"
 }, {
     "name": "execution_period",
-    "default": 50,
+    "default": 120,
     "description":"Number of seconds after the voting deadline for which a split proposal is executable",
     "type": "int"
 }]

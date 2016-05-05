@@ -13,7 +13,7 @@ var _daoCreatorContract = creatorContract.new(
     {
 	    from: web3.eth.accounts[0],
 	    data: creator_bin,
-	    gas: 4000000
+	    gas: 4700000
     }, function (e, contract){
 	    if (e) {
             console.log(e+ " at DAOCreator creation!");
@@ -21,6 +21,7 @@ var _daoCreatorContract = creatorContract.new(
             console.log("Creating the actual DAO");
             var dao = daoContract.new(
 	            curator,
+                curator,
 	            contract.address,
                 web3.toWei(default_proposal_deposit, "ether"),
 	            web3.toWei(min_tokens_to_create, "ether"),
@@ -29,7 +30,7 @@ var _daoCreatorContract = creatorContract.new(
 		        {
 		            from: web3.eth.accounts[0],
 		            data: dao_bin,
-		            gas: 4000000
+		            gas: 4700000
 		        }, function (e, our_contract) {
 		            // funny thing, without this geth hangs
 		            console.log("At DAO creation callback");

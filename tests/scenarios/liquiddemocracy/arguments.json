@@ -1,0 +1,16 @@
+[{
+    "name": "debate_seconds",
+    "default": 20,
+    "description": "Number of seconds that a proposal should be open for voting",
+    "type": "int"
+}, {
+    "name": "deposit",
+    "default": 25,
+    "description": "The proposal deposit. Has to be more than 20 ether",
+    "type": "int"
+}, {
+    "name": "halveminquorum",
+    "default": false,
+    "description": "If true then halveMinQuorum() is called before voting on the proposal.",
+    "type": "bool"
+}]

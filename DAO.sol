@@ -78,9 +78,6 @@ contract DAOInterface {
 
     // Amount of rewards (in wei) already paid out to a certain address
     mapping (address => uint) public paidOut;
-    // Map of addresses blocked during a vote (not allowed to transfer DAO
-    // tokens). The address points to the proposal ID.
-    mapping (address => uint) public blocked;
 
     // The minimum deposit (in wei) required to submit any proposal that is not
     // requesting a new Curator (no deposit is required for splits)
@@ -92,6 +89,22 @@ contract DAOInterface {
     // Contract that is able to create a new DAO (with the same code as
     // this one), used for splits
     DAO_Creator public daoCreator;
+
+
+
+    // Default delegate
+    // All tokenHolders that has not defined a delegate defaults to this delegate (delegate 0)
+    address public defaultDelegate;
+
+    // Who is the delegate for each token Holders
+    // Zero means the default delegate
+    mapping (address => VotesAssignedToTokenHolder[]) votesAssignedToTokenHolders;
+
+    // Each delegate has an array of delegations
+    // When a new delegation change, it will take effect in the next proposal Id
+    // This will be noted at the end of the array adding a Delegation if necessary
+    mapping (address => VotesAssignedToDelegate[]) votesAssignedToDelegates;
+
 
     // A proposal with `newCurator == false` represents a transaction
     // to be issued by this DAO
@@ -129,6 +142,8 @@ contract DAOInterface {
         mapping (address => bool) votedYes;
         // Simple mapping to check if a shareholder has voted against it
         mapping (address => bool) votedNo;
+        // Bypassed votes for each delegate
+        mapping (address => uint) bypassedDelegatedVotes;
         // Address of the shareholder who created the proposal
         address creator;
     }
@@ -145,6 +160,23 @@ contract DAOInterface {
         DAO newDAO;
     }
 
+
+    struct VotesAssignedToDelegate {
+        // proposal when starts to take effect the delegation
+        uint fromProposalId;
+        // Number of votes has been delegated to this delegate.
+        uint delegatedVotes;
+    }
+
+    struct VotesAssignedToTokenHolder {
+        // proposal when starts to take effect the delegation
+        uint fromProposalId;
+        // nomber of votes assigned to token holder from proposal
+        uint votes;
+        // Address of the delegate assigned
+        address delegate;
+    }
+
     // Used to restrict access to certain functions to only DAO Token Holders
     modifier onlyTokenholders {}
 
@@ -152,6 +184,7 @@ contract DAOInterface {
     /// for the contract able to create another DAO as well as the parameters
     /// for the DAO Token Creation
     /// @param _curator The Curator
+    /// @param _defaultDelegate Default delegate of the DAO
     /// @param _daoCreator The contract able to (re)create this DAO
     /// @param _proposalDeposit The deposit to be paid for a regular proposal
     /// @param _minTokensToCreate Minimum required wei-equivalent tokens
@@ -162,6 +195,7 @@ contract DAOInterface {
     // This is the constructor: it can not be overloaded so it is commented out
     //  function DAO(
         //  address _curator,
+        //  address _defaultDelegate
         //  DAO_Creator _daoCreator,
         //  uint _proposalDeposit,
         //  uint _minTokensToCreate,
@@ -320,14 +354,24 @@ contract DAOInterface {
     /// @return Address of the new DAO
     function getNewDAOAddress(uint _proposalID) constant returns (address _newDAO);
 
-    /// @param _account The address of the account which is checked.
-    /// @return Whether the account is blocked (not allowed to transfer tokens) or not.
-    function isBlocked(address _account) internal returns (bool);
+    /// @param _delegate The address of the new delegate representhing calling token holder
+    /// @return Whether the change was successful or not
+    function setDelegate(address _delegate) returns (bool _success);
 
-    /// @notice If the caller is blocked by a proposal whose voting deadline
-    /// has exprired then unblock him.
-    /// @return Whether the account is blocked (not allowed to transfer tokens) or not.
-    function unblockMe() returns (bool);
+    /// @notice Return address of the delegate representing _tokenHolder for a specifip propolal.
+    /// @param _tokenHolder The tokenHolder to determine the delegate
+    /// @param _proposalID The proposal ID for which you want to determine the tokenHolder delegate's address
+    /// @return votes The number of votes that can use in this proposal
+    /// @return delegate The tokenHolder deletate's address of this proposal.
+    function getTokenHolderVotingRights(address _tokenHolder, uint _proposalID) constant returns (uint votes, address delegate);
+
+    /// @notice Return number of votes controlled by a delegate for a specific proposal
+    /// @param _delegate The delegate address for which wou want to deretmine the controlled votes
+    /// @param _proposalID The proposal ID for which you want to determine the votes controlled by the delegate
+    /// @return The number of votes that _delegate controls.
+    function getDelegateVotingRights(address _delegate, uint _proposalID) constant returns (uint votes);
+
+
 
     event ProposalAdded(
         uint indexed proposalID,
@@ -339,6 +383,7 @@ contract DAOInterface {
     event Voted(uint indexed proposalID, bool position, address indexed voter);
     event ProposalTallied(uint indexed proposalID, bool result, uint quorum);
     event NewCurator(address indexed _newCurator);
+    event NewDefaultDelegate(address indexed _newDefaultDelegate);
     event AllowedRecipientChanged(address indexed _recipient, bool _allowed);
 }
 
@@ -353,6 +398,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
 
     function DAO(
         address _curator,
+        address _defaultDelegate,
         DAO_Creator _daoCreator,
         uint _proposalDeposit,
         uint _minTokensToCreate,
@@ -363,6 +409,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
         curator = _curator;
         daoCreator = _daoCreator;
         proposalDeposit = _proposalDeposit;
+        defaultDelegate = _defaultDelegate;
         rewardAccount = new ManagedAccount(address(this), false);
         DAOrewardAccount = new ManagedAccount(address(this), false);
         if (address(rewardAccount) == 0)
@@ -472,7 +519,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
     function vote(
         uint _proposalID,
         bool _supportsProposal
-    ) onlyTokenholders noEther returns (uint _voteID) {
+    ) noEther returns (uint _voteID) {
 
         Proposal p = proposals[_proposalID];
         if (p.votedYes[msg.sender]
@@ -482,23 +529,72 @@ contract DAO is DAOInterface, Token, TokenCreation {
             throw;
         }
 
-        if (_supportsProposal) {
-            p.yea += balances[msg.sender];
-            p.votedYes[msg.sender] = true;
-        } else {
-            p.nay += balances[msg.sender];
-            p.votedNo[msg.sender] = true;
+        var (votes, delegate) = getTokenHolderVotingRights(msg.sender, _proposalID);
+        bool hasVoted = false;
+
+        // Vote as a tokenHolder
+        if (votes >0) {
+            if (_supportsProposal) {
+                p.yea += votes;
+                p.votedYes[msg.sender] = true;
+            } else {
+                p.nay += votes;
+                p.votedNo[msg.sender] = true;
+            }
+
+            p.bypassedDelegatedVotes[delegate] += votes;
+            if (p.votedYes[delegate]) {
+                p.yea -= votes;
+            } else if (p.votedNo[delegate]) {
+                p.nay -= votes;
+            }
+
+            hasVoted = true;
         }
 
-        if (blocked[msg.sender] == 0) {
-            blocked[msg.sender] = _proposalID;
-        } else if (p.votingDeadline > proposals[blocked[msg.sender]].votingDeadline) {
-            // this proposal's voting deadline is further into the future than
-            // the proposal that blocks the sender so make it the blocker
-            blocked[msg.sender] = _proposalID;
+        // Vote a delegate
+        uint delegatedAssignedVotes = getDelegateVotingRights(msg.sender, _proposalID);
+        if (delegatedAssignedVotes>0) {
+            if (_supportsProposal) {
+                p.yea += delegatedAssignedVotes - p.bypassedDelegatedVotes[msg.sender];
+                p.votedYes[msg.sender] = true;
+            } else {
+                p.nay += delegatedAssignedVotes - p.bypassedDelegatedVotes[msg.sender];
+                p.votedNo[msg.sender] = true;
+            }
+
+            hasVoted = true;
+        }
+
+        // Vote as a default delegate
+        if ((msg.sender == defaultDelegate) &&
+            (!p.votedNo[0]) &&
+            (!p.votedYes[0]))
+        {
+            delegatedAssignedVotes = getDelegateVotingRights(0, _proposalID);
+            if (delegatedAssignedVotes>0) {
+                if (_supportsProposal) {
+                    p.yea += delegatedAssignedVotes - p.bypassedDelegatedVotes[0];
+                    p.votedYes[0] = true;
+                } else {
+                    p.nay += delegatedAssignedVotes - p.bypassedDelegatedVotes[0];
+                    p.votedNo[0] = true;
+                }
+                hasVoted =true;
+            }
+        }
+
+        // Do not set the event if no voted
+        if ( !hasVoted) {
+            throw;
         }
 
         Voted(_proposalID, _supportsProposal, msg.sender);
+    }
+
+    function getVote(address _account, uint _proposalID) constant returns (bool votedYes, bool VotedNo ) {
+        return (proposals[_proposalID].votedYes[_account],
+                proposals[_proposalID].votedNo[_account]);
     }
 
 
@@ -596,6 +692,27 @@ contract DAO is DAOInterface, Token, TokenCreation {
         p.open = false;
     }
 
+    function burnTokens(address _tokenHolder) internal {
+
+        // Remove TokenHolder votes
+        var (previousTokenHolderVotes, delegate) = getTokenHolderVotingRights(_tokenHolder, proposals.length);
+
+        updateTokenHolderVotes(_tokenHolder, 0, delegate);
+
+        // Remove delegate votes
+        uint previousDelegateVotes = getDelegateVotingRights(delegate, proposals.length);
+
+        updateDelegateVotes(delegate, previousDelegateVotes - previousTokenHolderVotes);
+
+        // Burn DAO Tokens
+        Transfer(_tokenHolder, 0, balances[_tokenHolder]);
+        withdrawRewardFor(_tokenHolder); // be nice, and get his rewards
+        totalSupply -= balances[_tokenHolder];
+        balances[_tokenHolder] = 0;
+        paidOut[_tokenHolder] = 0;
+    }
+
+
     function splitDAO(
         uint _proposalID,
         address _newCurator
@@ -604,7 +721,8 @@ contract DAO is DAOInterface, Token, TokenCreation {
         Proposal p = proposals[_proposalID];
 
         // Sanity check
-
+        var (votes, delegate) = getTokenHolderVotingRights(msg.sender, _proposalID);
+        bool votedYes = p.votedYes[msg.sender] || ( (! p.votedNo[msg.sender]) && p.votedYes[delegate]);
         if (now < p.votingDeadline  // has the voting deadline arrived?
             //The request for a split expires XX days after the voting deadline
             || now > p.votingDeadline + splitExecutionPeriod
@@ -613,12 +731,11 @@ contract DAO is DAOInterface, Token, TokenCreation {
             // Is it a new curator proposal?
             || !p.newCurator
             // Have you voted for this split?
-            || !p.votedYes[msg.sender]
-            // Did you already vote on another proposal?
-            || (blocked[msg.sender] != _proposalID && blocked[msg.sender] != 0) )  {
+            || !   votedYes) {
 
             throw;
         }
+
 
         // If the new DAO doesn't exist yet, create the new DAO and store the
         // current split data
@@ -642,8 +759,6 @@ contract DAO is DAOInterface, Token, TokenCreation {
             p.splitData[0].totalSupply;
         if (p.splitData[0].newDAO.createTokenProxy.value(fundsToBeMoved)(msg.sender) == false)
             throw;
-
-
         // Assign reward rights to new DAO
         uint rewardTokenToBeMoved =
             (balances[msg.sender] * p.splitData[0].rewardToken) /
@@ -662,12 +777,8 @@ contract DAO is DAOInterface, Token, TokenCreation {
             throw;
         DAOpaidOut[address(this)] -= paidOutToBeMoved;
 
-        // Burn DAO Tokens
-        Transfer(msg.sender, 0, balances[msg.sender]);
-        withdrawRewardFor(msg.sender); // be nice, and get his rewards
-        totalSupply -= balances[msg.sender];
-        balances[msg.sender] = 0;
-        paidOut[msg.sender] = 0;
+        burnTokens(msg.sender);
+
         return true;
     }
 
@@ -683,6 +794,14 @@ contract DAO is DAOInterface, Token, TokenCreation {
         rewardToken[address(this)] = 0;
         DAOpaidOut[_newContract] += DAOpaidOut[address(this)];
         DAOpaidOut[address(this)] = 0;
+    }
+
+    function newDefaultDelegate(address _newDefaultDelegate){
+        if (msg.sender != address(this) || !allowedRecipients[_newDefaultDelegate]) return;
+
+        defaultDelegate = _newDefaultDelegate;
+
+        NewDefaultDelegate(defaultDelegate);
     }
 
 
@@ -729,9 +848,14 @@ contract DAO is DAOInterface, Token, TokenCreation {
     function transfer(address _to, uint256 _value) returns (bool success) {
         if (isFueled
             && now > closingTime
-            && !isBlocked(msg.sender)
             && transferPaidOut(msg.sender, _to, _value)
             && super.transfer(_to, _value)) {
+
+            var (votesFrom, delegateFrom) = getTokenHolderVotingRights(msg.sender, proposals.length);
+            var (votesTo, delegateTo) = getTokenHolderVotingRights(_to, proposals.length);
+
+            transferDelegateVotes(delegateFrom, delegateTo, _value);
+            transferTokenHolderVotes(msg.sender, _to, _value);
 
             return true;
         } else {
@@ -750,9 +874,16 @@ contract DAO is DAOInterface, Token, TokenCreation {
     function transferFrom(address _from, address _to, uint256 _value) returns (bool success) {
         if (isFueled
             && now > closingTime
-            && !isBlocked(_from)
             && transferPaidOut(_from, _to, _value)
             && super.transferFrom(_from, _to, _value)) {
+
+
+            var (votesFrom, delegateFrom) = getTokenHolderVotingRights(_from, proposals.length);
+            var (votesTo, delegateTo) = getTokenHolderVotingRights(_to, proposals.length);
+
+            transferDelegateVotes(delegateFrom, delegateTo, _value);
+            transferTokenHolderVotes(_from, _to, _value);
+
 
             return true;
         } else {
@@ -845,7 +976,9 @@ contract DAO is DAOInterface, Token, TokenCreation {
 
     function createNewDAO(address _newCurator) internal returns (DAO _newDAO) {
         NewCurator(_newCurator);
-        return daoCreator.createDAO(_newCurator, 0, 0, now + splitExecutionPeriod);
+
+        // We set the new DAO's defaultDelegate to the new DAO's curator.
+        return daoCreator.createDAO(_newCurator, _newCurator, 0, 0, now + splitExecutionPeriod);
     }
 
     function numberOfProposals() constant returns (uint _numberOfProposals) {
@@ -857,26 +990,153 @@ contract DAO is DAOInterface, Token, TokenCreation {
         return proposals[_proposalID].splitData[0].newDAO;
     }
 
-    function isBlocked(address _account) internal returns (bool) {
-        if (blocked[_account] == 0)
-            return false;
-        Proposal p = proposals[blocked[_account]];
-        if (now > p.votingDeadline) {
-            blocked[_account] = 0;
-            return false;
-        } else {
-            return true;
-        }
+    function createTokenProxy(address _tokenHolder) returns (bool success) {
+        uint oldTokens = balances[_tokenHolder];
+
+        bool res = super.createTokenProxy(_tokenHolder);
+
+        if (!res) return false;
+
+        uint createdTokens = balances[_tokenHolder] - oldTokens;
+
+        if (createdTokens == 0) return true;
+
+        var (votes, delegate) = getTokenHolderVotingRights(_tokenHolder, proposals.length);
+
+        updateTokenHolderVotes(_tokenHolder, votes + createdTokens, delegate);
+
+        uint delegatedVotes = getDelegateVotingRights(delegate, proposals.length);
+
+        updateDelegateVotes(delegate, delegatedVotes + createdTokens);
+
+        return true;
     }
 
-    function unblockMe() returns (bool) {
-        return isBlocked(msg.sender);
+    function setDelegate(address _delegate) onlyTokenholders noEther returns (bool) {
+            var (votes, oldDelegate) = getTokenHolderVotingRights(msg.sender, proposals.length);
+
+            if (oldDelegate == _delegate) {
+                throw;
+            }
+            transferDelegateVotes(oldDelegate, _delegate, votes);
+
+            updateTokenHolderVotes(msg.sender, votes, _delegate);
+
+            return true;
     }
+
+
+    function getTokenHolderVotingRights(address _tokenHolder, uint _proposalID) constant returns (uint votes, address delegate) {
+            VotesAssignedToTokenHolder[] assignements = votesAssignedToTokenHolders[_tokenHolder];
+            if (assignements.length == 0) {
+                return (0,0);
+            }
+
+            uint i;
+
+            for (i = assignements.length; i>0; i-- ) {
+                VotesAssignedToTokenHolder a = assignements[i-1];
+                if (_proposalID >= a.fromProposalId) return (a.votes, a.delegate);
+            }
+
+            return (0,0);
+    }
+
+
+    function getDelegateVotingRights(address _delegate, uint _proposalID) constant returns (uint votes) {
+            VotesAssignedToDelegate[] assignements = votesAssignedToDelegates[_delegate];
+            if (assignements.length == 0) return 0;
+
+            uint i;
+
+            for (i = assignements.length; i>0; i-- ) {
+                VotesAssignedToDelegate a = assignements[i-1];
+                if (_proposalID >= a.fromProposalId) return a.delegatedVotes;
+            }
+
+            return 0;
+    }
+
+    function transferDelegateVotes(address _delegateFrom, address _delegateTo, uint _value) internal constant returns(bool) {
+
+            if (_value == 0) {
+                return true;
+            }
+
+// Remove _delegateFrom votes
+            uint previousVotesFrom = getDelegateVotingRights(_delegateFrom, proposals.length);
+            if (previousVotesFrom < _value) {
+                throw;
+            }
+
+            updateDelegateVotes(_delegateFrom, previousVotesFrom - _value);
+
+// Add _delegateTo votes
+            uint previousVotesTo = getDelegateVotingRights(_delegateTo, proposals.length);
+
+            updateDelegateVotes(_delegateTo, previousVotesTo + _value);
+
+            return true;
+    }
+
+    function transferTokenHolderVotes(address _from, address _to, uint _value) internal constant returns(bool) {
+
+        if (_value == 0) {
+            return true;
+        }
+
+// Remove _from votes
+        var (previousVotesFrom, previousDelegateFrom) = getTokenHolderVotingRights(_from, proposals.length);
+        if (previousVotesFrom < _value) {
+            throw;
+        }
+        updateTokenHolderVotes(_from, previousVotesFrom - _value, previousDelegateFrom);
+
+// Add _delegateTo votes
+        var (previousVotesTo, previousDelegateTo) = getTokenHolderVotingRights(_to, proposals.length);
+        updateTokenHolderVotes(_to, previousVotesTo + _value, previousDelegateTo);
+
+        return true;
+    }
+
+    function updateTokenHolderVotes(address _tokenHolder, uint _votes, address _delegate) internal returns (bool) {
+        VotesAssignedToTokenHolder[] assignments = votesAssignedToTokenHolders[_tokenHolder];
+
+        if ((assignments.length == 0) || (assignments[assignments.length -1].fromProposalId < proposals.length)) {
+            VotesAssignedToTokenHolder newAssignment = assignments[ assignments.length++ ];
+            newAssignment.fromProposalId = proposals.length;
+            newAssignment.votes = _votes;
+            newAssignment.delegate = _delegate;
+        } else {
+            VotesAssignedToTokenHolder oldAssignment = assignments[assignments.length-1];
+            oldAssignment.votes = _votes;
+            oldAssignment.delegate = _delegate;
+        }
+
+        return true;
+    }
+
+    function updateDelegateVotes(address _delegate, uint _votes) internal returns (bool) {
+        VotesAssignedToDelegate[] assignments = votesAssignedToDelegates[_delegate];
+
+        if ((assignments.length == 0) || (assignments[assignments.length -1].fromProposalId < proposals.length)) {
+            VotesAssignedToDelegate newAssignment = assignments[ assignments.length++ ];
+            newAssignment.fromProposalId = proposals.length;
+            newAssignment.delegatedVotes = _votes;
+        } else {
+            var oldAssignment = assignments[assignments.length-1];
+            oldAssignment.delegatedVotes = _votes;
+        }
+
+        return true;
+    }
+
 }
 
 contract DAO_Creator {
     function createDAO(
         address _curator,
+        address _defaultDelegate,
         uint _proposalDeposit,
         uint _minTokensToCreate,
         uint _closingTime
@@ -884,6 +1144,7 @@ contract DAO_Creator {
 
         return new DAO(
             _curator,
+            _defaultDelegate,
             DAO_Creator(this),
             _proposalDeposit,
             _minTokensToCreate,

@@ -32,7 +32,7 @@ def run(ctx):
         cb_before_creation=calculate_closing_time
     )
     output = ctx.run_script('deploy.js')
-    results = extract_test_dict('deploy', output)
+    results = extract_test_dict('deploy', output.decode())
 
     try:
         ctx.dao_creator_addr = results['dao_creator_address']

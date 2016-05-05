@@ -33,6 +33,8 @@ tests/multisplitrewards.js
 tests/spendall.js
 tests/extrabalance.js
 tests/stealextrabalance.js
+tests/liquiddemocracy.js
+tests/fuel_predictive.js
 
 # Ignore deployment related file
 deploy/code.js
