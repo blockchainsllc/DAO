@@ -34,6 +34,8 @@ tests/spendall.js
 tests/extrabalance.js
 tests/stealextrabalance.js
 tests/firecontractor.js
+tests/fuel_predictive.js
+tests/dthpool.js
 tests/sampleoffer_dailypayment.js
 
 # Ignore deployment related file
@@ -48,3 +50,7 @@ paper/*.aux
 paper/*.log
 paper/*.out
 paper/*.pdf
+
+# tmp directory
+tmp/
+

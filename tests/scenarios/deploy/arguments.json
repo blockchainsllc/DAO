@@ -1,6 +1,6 @@
 [{
     "name": "creation_seconds",
-    "default": 35,
+    "default": 60,
     "description":"Number of seconds from now when the newly created DAO creation ends",
     "type":"int"
 }, {
@@ -23,5 +23,11 @@
     "name": "proposal_deposit",
     "default": 20,
     "description": "The default proposal deposit for every proposal of the DAO",
+    "type":"int"
+},
+{
+    "name": "dthpool_max_time_blocked",
+    "default": 30,
+    "description": "Secons before voting end that dth can send vote to the DAO",
     "type":"int"
 }]

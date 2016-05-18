@@ -1,4 +1,5 @@
 var _curator = web3.eth.accounts[0];
+var _delegate = web3.eth.accounts[0];
 var daoContract = web3.eth.contract($dao_abi);
 console.log("Creating DAOCreator Contract");
 var creatorContract = web3.eth.contract($creator_abi);
@@ -27,10 +28,12 @@ var _daoCreatorContract = creatorContract.new(
 		    }, function (e, contract) {
 		        // funny thing, without this geth hangs
 		        console.log("At DAO creation callback");
-		        if (typeof contract.address != 'undefined') {
+                if (e) {
+                    console.log(e + " at DTHPool Contract creation!");
+                } else if (typeof contract.address != 'undefined') {
                     addToTest('dao_address', contract.address);
 
-                    // and finally now deploy the Sample Offer
+                    //  now deploy the Sample Offer
                     var offerContract = web3.eth.contract($offer_abi);
                     var offer = offerContract.new(
                         contractor,
@@ -48,15 +51,44 @@ var _daoCreatorContract = creatorContract.new(
                                 console.log(e + " at Offer Contract creation!");
 	                        } else if (typeof offer_contract.address != 'undefined') {
                                 addToTest('offer_address', offer_contract.address);
-                                testResults();
+
+                                console.log("Creating dthpool");
+
+                                var dthpoolContract = web3.eth.contract($dthpool_abi);
+
+                                var dthpool = dthpoolContract.new(
+                                    contract.address,
+                                    _delegate,
+                                    $dthpool_max_time_blocked,
+                                    "test",
+                                    "http;//thedao.io/dthpool/test",
+                                    {
+                                        from: web3.eth.accounts[0],
+                                        data: '$dthpool_bin',
+                                        gas: 3000000
+                                    }, function (e, contract) {
+                                        console.log("At dthpool callback creation callback");
+                                        if (e) {
+                                            console.log(e + " at DTHPool Contract creation!");
+                                        } else if (typeof contract.address != 'undefined') {
+                                            addToTest('dthpool_address', contract.address);
+                                        }
+                                    }
+                                );
+                                checkWork();
                             }
-                        }
-                    );
+                        });
                     checkWork();
 		        }
 		    });
         checkWork();
 	}
-    });
+});
 checkWork();
+console.log("mining contract, please wait");
+miner.start();
+setTimeout(function() {
+    miner.stop();
+    testResults();
+}, 20000);
 

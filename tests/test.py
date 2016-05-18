@@ -27,6 +27,7 @@ class TestContext():
         self.tests_ok = True
         self.dao_addr = None
         self.offer_addr = None
+        self.dthpool_addr = None
         self.token_amounts = None
         self.tests_dir = os.path.dirname(os.path.realpath(__file__))
         datadir = os.path.join(self.tests_dir, "data")
@@ -82,6 +83,7 @@ class TestContext():
             self.dao_addr = data['dao_addr']
             self.dao_creator_addr = data['dao_creator_addr']
             self.offer_addr = data['offer_addr']
+            self.dthpool_addr = data['dthpool_addr']
             self.closing_time = data['closing_time']
             print("Loaded dao_addr: {}".format(self.dao_addr))
             print("Loaded dao_creator_addr: {}".format(self.dao_creator_addr))
@@ -173,6 +175,11 @@ class TestContext():
         res = self.compile_contract(offer)
         self.offer_abi = res["contracts"]["SampleOffer"]["abi"]
         self.offer_bin = res["contracts"]["SampleOffer"]["bin"]
+
+        dthpool = os.path.join(self.contracts_dir, "DTHPool.sol")
+        res = self.compile_contract(dthpool)
+        self.dthpool_abi = res["contracts"]["DTHPool"]["abi"]
+        self.dthpool_bin = res["contracts"]["DTHPool"]["bin"]
 
         # also delete the temporary created files
         rm_file(os.path.join(self.contracts_dir, "DAOcopy.sol"))
