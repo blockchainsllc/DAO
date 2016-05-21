@@ -25,7 +25,6 @@ import "./TokenCreation.sol";
 import "./ManagedAccount.sol";
 
 contract DAOInterface {
-
     // The amount of days for which people who try to participate in the
     // creation by calling the fallback function will still get their ether back
     uint constant creationGracePeriod = 40 days;
@@ -347,8 +346,24 @@ contract DAO is DAOInterface, Token, TokenCreation {
 
     // Modifier that allows only shareholders to vote and create new proposals
     modifier onlyTokenholders {
-        if (balanceOf(msg.sender) == 0) throw;
-            _
+        if (balanceOf(msg.sender) == 0) 
+            throw;
+    }
+    modifier afterCreation {
+          if (now < closingTime) 
+            throw;
+    }
+    modifier fueled {
+          if(!isFueled) 
+            throw;
+    }
+    modifier onlyDAO {
+        if (msg.sender != address(this)) 
+            throw;
+    }
+    modifier notBlocked {
+        if (isBlocked(msg.sender)) 
+            throw;
     }
 
     function DAO(
@@ -397,7 +412,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
         bytes _transactionData,
         uint _debatingPeriod,
         bool _newCurator
-    ) onlyTokenholders returns (uint _proposalID) {
+    ) onlyTokenholders afterCreation fueled returns (uint _proposalID) {
 
         // Sanity check
         if (_newCurator && (
@@ -416,14 +431,9 @@ contract DAO is DAOInterface, Token, TokenCreation {
 
         if (_debatingPeriod > 8 weeks)
             throw;
-
-        if (!isFueled
-            || now < closingTime
-            || (msg.value < proposalDeposit && !_newCurator)) {
-
+        if (msg.value < proposalDeposit && !_newCurator) {
             throw;
         }
-
         if (now + _debatingPeriod < now) // prevents overflow
             throw;
 
@@ -675,13 +685,12 @@ contract DAO is DAOInterface, Token, TokenCreation {
         return true;
     }
 
-    function newContract(address _newContract){
-        if (msg.sender != address(this) || !allowedRecipients[_newContract]) return;
+    function newContract(address _newContract) onlyDAO {
+        if (!allowedRecipients[_newContract]) return;
         // move all ether
         if (!_newContract.call.value(address(this).balance)()) {
             throw;
         }
-
         //move all reward tokens
         rewardToken[_newContract] += rewardToken[address(this)];
         rewardToken[address(this)] = 0;
@@ -736,13 +745,9 @@ contract DAO is DAOInterface, Token, TokenCreation {
     }
 
 
-    function transfer(address _to, uint256 _value) returns (bool success) {
-        if (isFueled
-            && now > closingTime
-            && !isBlocked(msg.sender)
-            && transferPaidOut(msg.sender, _to, _value)
+    function transfer(address _to, uint256 _value) fueled afterCreation notBlocked returns (bool success){
+        if (transferPaidOut(msg.sender, _to, _value)
             && super.transfer(_to, _value)) {
-
             return true;
         } else {
             throw;
@@ -757,11 +762,8 @@ contract DAO is DAOInterface, Token, TokenCreation {
     }
 
 
-    function transferFrom(address _from, address _to, uint256 _value) returns (bool success) {
-        if (isFueled
-            && now > closingTime
-            && !isBlocked(_from)
-            && transferPaidOut(_from, _to, _value)
+    function transferFrom(address _from, address _to, uint256 _value) fueled afterCreation notBlocked returns (bool success) {
+        if (transferPaidOut(_from, _to, _value)
             && super.transferFrom(_from, _to, _value)) {
 
             return true;
@@ -798,10 +800,9 @@ contract DAO is DAOInterface, Token, TokenCreation {
     }
 
 
-    function changeProposalDeposit(uint _proposalDeposit) noEther external {
-        if (msg.sender != address(this) || _proposalDeposit > (actualBalance() + rewardToken[address(this)])
+    function changeProposalDeposit(uint _proposalDeposit) noEther onlyDAO external {
+        if (_proposalDeposit > (actualBalance() + rewardToken[address(this)])
             / maxDepositDivisor) {
-
             throw;
         }
         proposalDeposit = _proposalDeposit;
