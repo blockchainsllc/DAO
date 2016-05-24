@@ -8,7 +8,7 @@ scenario_description = (
 
 def run(ctx):
     ctx.assert_scenario_ran('proposal')
-    bytecode = calculate_bytecode('returnRemainingMoney')
+    bytecode = calculate_bytecode('returnRemainingEther', ("uint256", 2))
     ctx.create_js_file(substitutions={
         "dao_abi": ctx.dao_abi,
         "dao_address": ctx.dao_addr,
