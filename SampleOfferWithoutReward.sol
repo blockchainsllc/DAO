@@ -36,6 +36,11 @@ import "./DAO.sol";
 
 contract SampleOfferWithoutReward {
 
+    enum Method {
+        RETURN_REMAINING_ETHER,
+        UPDATE_CLIENT_ADDRESS
+    }
+
     // The total cost of the Offer. Exactly this amount is transfered from the
     // Client to the Offer contract when the Offer is signed by the Client.
     // Set once by the Offerer.
@@ -68,6 +73,18 @@ contract SampleOfferWithoutReward {
     DAO public client; // address of DAO
     DAO public originalClient; // address of DAO who signed the contract
     bool public isContractValid;
+    // The required quorum for executing updateClientAddress
+    // and returnRemainingEther, given at construction time. Has to be
+    // a uint ranging from 0 to 100
+    uint public quorumForChange;
+
+    // just for debugging
+    uint public givenProposalID;
+    bytes32 public givenHash;
+    bytes32 public calculatedHash;
+    uint public givenYea;
+    uint public givenNay;
+    bytes public calculatedTXDATA;
 
     modifier onlyClient {
         if (msg.sender != address(client))
@@ -84,7 +101,8 @@ contract SampleOfferWithoutReward {
         bytes32 _IPFSHashOfTheProposalDocument,
         uint _totalCosts,
         uint _oneTimeCosts,
-        uint128 _minDailyWithdrawLimit
+        uint128 _minDailyWithdrawLimit,
+        uint _quorumForChange
     ) {
         contractor = _contractor;
         originalClient = DAO(_client);
@@ -94,6 +112,44 @@ contract SampleOfferWithoutReward {
         oneTimeCosts = _oneTimeCosts;
         minDailyWithdrawLimit = _minDailyWithdrawLimit;
         dailyWithdrawLimit = _minDailyWithdrawLimit;
+
+        if (_quorumForChange > 100) {
+            throw;
+        }
+        quorumForChange = _quorumForChange;
+    }
+
+    function requiredQuorumCheck(uint _proposalID, Method method) internal returns (bool _ok) {
+        if (_proposalID > client.numberOfProposals()) {
+            return false;
+        }
+        var (r,a,v,o,proposalPassed, proposalHash,,, yea, nay,) = client.proposals(_proposalID);
+        uint quorum = (yea + nay) * 100 / client.totalSupply();
+        var txData = new bytes(36);
+        txData[0] = 0xbf;
+        txData[1] = 0x51;
+        txData[2] = 0xf2;
+        txData[3] = 0x4d;
+        assembly { mstore(add(txData, 0x24), _proposalID) }
+
+        bytes32 hash = sha3(
+            address(this),
+            0,
+            txData
+        );
+        givenHash = proposalHash;
+        calculatedHash = hash;
+        givenProposalID = _proposalID;
+        givenYea = yea;
+        givenNay = nay;
+        calculatedTXDATA = txData;
+
+        /*  method == RETURN_REMAINING_ETHER */
+        /* ? sha3(this.address, 0, "0xbf51f24" ); */
+
+        return proposalPassed
+            && hash == proposalHash;
+        /* && quorum >= quorumForChange; */
     }
 
     function sign() {
@@ -114,7 +170,10 @@ contract SampleOfferWithoutReward {
     }
 
     // "fire the contractor"
-    function returnRemainingEther() onlyClient {
+    function returnRemainingEther(uint _proposalID) onlyClient {
+        if (!requiredQuorumCheck(_proposalID, Method.RETURN_REMAINING_ETHER)) {
+            return;
+        }
         if (originalClient.DAOrewardAccount().call.value(this.balance)())
             isContractValid = false;
     }

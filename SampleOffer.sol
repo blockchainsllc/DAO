@@ -36,14 +36,16 @@ contract SampleOffer is SampleOfferWithoutReward {
             bytes32 _IPFSHashOfTheProposalDocument,
             uint _totalCosts,
             uint _oneTimeCosts,
-            uint128 _minDailyWithdrawLimit
+            uint128 _minDailyWithdrawLimit,
+            uint _quorumForChange
         ) SampleOfferWithoutReward(
             _contractor,
             _client,
             _IPFSHashOfTheProposalDocument,
             _totalCosts,
             _oneTimeCosts,
-            _minDailyWithdrawLimit) {
+            _minDailyWithdrawLimit,
+            _quorumForChange) {
         }
 
     // interface for Ethereum Computer
