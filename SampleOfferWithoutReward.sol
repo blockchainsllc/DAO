@@ -32,10 +32,16 @@ along with the DAO.  If not, see <http://www.gnu.org/licenses/>.
                 Contractor.
 */
 
+
 import "./ManagedAccount.sol";
 import "./Token.sol";
 import "./TokenCreation.sol";
 
+// NOTE:
+// Having customized DAO interface here because I am trying
+// to circumvent this solidity bug:
+// https://github.com/ethereum/solidity/issues/598
+// by providing uint for all variable sized fields of the proposal
 contract DAO is Token, TokenCreation {
     uint constant creationGracePeriod = 40 days;
     uint constant minProposalDebatePeriod = 2 weeks;
@@ -199,13 +205,14 @@ contract SampleOfferWithoutReward {
     // a uint ranging from 0 to 100
     uint public quorumForChange;
 
-    // just for debugging
+    // -- only for debugging - start --
     uint public givenProposalID;
     bytes32 public givenHash;
     bytes32 public calculatedHash;
     uint public givenYea;
     uint public givenNay;
     bytes public calculatedTXDATA;
+    // -- only for debugging - end --
 
     modifier onlyClient {
         if (msg.sender != address(client))
@@ -247,10 +254,18 @@ contract SampleOfferWithoutReward {
         var (,,,,,proposalPassed, proposalHash,,,, yea, nay,,,) = client.proposals(_proposalID);
         uint quorum = (yea + nay) * 100 / client.totalSupply();
         var txData = new bytes(36);
-        txData[0] = 0xbf;
-        txData[1] = 0x51;
-        txData[2] = 0xf2;
-        txData[3] = 0x4d;
+
+        if (method == Method.RETURN_REMAINING_ETHER) { //0xbf51f24d
+            txData[0] = 0xbf;
+            txData[1] = 0x51;
+            txData[2] = 0xf2;
+            txData[3] = 0x4d;
+        } else { // 0xf928662f
+            txData[0] = 0xf9;
+            txData[1] = 0x28;
+            txData[2] = 0x66;
+            txData[3] = 0x2f;
+        }
         assembly { mstore(add(txData, 0x24), _proposalID) }
 
         bytes32 hash = sha3(
@@ -258,19 +273,17 @@ contract SampleOfferWithoutReward {
             0,
             txData
         );
+        // -- only for debugging - start --
         givenHash = proposalHash;
         calculatedHash = hash;
         givenProposalID = _proposalID;
         givenYea = yea;
         givenNay = nay;
         calculatedTXDATA = txData;
-
-        /*  method == RETURN_REMAINING_ETHER */
-        /* ? sha3(this.address, 0, "0xbf51f24" ); */
-
+        // -- only for debugging - end --
         return proposalPassed
-            && hash == proposalHash;
-        /* && quorum >= quorumForChange; */
+            && hash == proposalHash
+            && quorum >= quorumForChange;
     }
 
     function sign() {
@@ -321,7 +334,10 @@ contract SampleOfferWithoutReward {
     // Change the client DAO by giving the new DAO's address
     // warning: The new DAO must come either from a split of the original
     // DAO or an update via `newContract()` so that it can claim rewards
-    function updateClientAddress(DAO _newClient) onlyClient noEther {
+    function updateClientAddress(DAO _newClient, uint _proposalID) onlyClient noEther {
+        if (!requiredQuorumCheck(_proposalID, Method.UPDATE_CLIENT_ADDRESS)) {
+            return;
+        }
         client = _newClient;
     }
 
