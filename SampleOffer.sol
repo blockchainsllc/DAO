@@ -27,7 +27,6 @@ import "./SampleOfferWithoutReward.sol";
 
 contract SampleOffer is SampleOfferWithoutReward {
 
-    uint public rewardDivisor;
     uint public deploymentReward;
 
         function SampleOffer(
