@@ -121,7 +121,11 @@ contract SampleOfferWithoutReward {
     function getDailyPayment() {
         if (msg.sender != contractor)
             throw;
-        uint amount = (now - dateOfSignature + 1 days) / (1 days) * dailyWithdrawLimit - paidOut;
+        uint totalWithdrawal = (now - dateOfSignature + 1 days) / (1 days) * dailyWithdrawLimit;
+        if (paidOut > totalWithdrawal)
+            throw;
+
+        uint amount = totalWithdrawal - paidOut;
         if (amount > this.balance) {
             amount = this.balance;
         }
