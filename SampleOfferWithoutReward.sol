@@ -131,6 +131,10 @@ contract SampleOfferWithoutReward {
     // Executing this function before the Offer is signed off by the Client
     // makes no sense as this contract has no money.
     function getDailyPayment() noEther {
+        if (msg.sender != contractor && msg.sender != address(client)) {
+            throw;
+        }
+
         uint timeSinceLastPayment = now - lastPayment;
         // Calculate the amount using 1 second precision.
         uint amount = (timeSinceLastPayment * dailyWithdrawLimit) / (1 days);
