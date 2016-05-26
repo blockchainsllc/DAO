@@ -30,21 +30,29 @@ contract SampleOffer is SampleOfferWithoutReward {
     uint public rewardDivisor;
     uint public deploymentReward;
 
-        function SampleOffer(
-            address _contractor,
-            address _client,
-            bytes32 _IPFSHashOfTheProposalDocument,
-            uint _totalCosts,
-            uint _oneTimeCosts,
-            uint128 _minDailyWithdrawLimit
-        ) SampleOfferWithoutReward(
-            _contractor,
-            _client,
-            _IPFSHashOfTheProposalDocument,
-            _totalCosts,
-            _oneTimeCosts,
-            _minDailyWithdrawLimit) {
-        }
+    function SampleOffer(
+        address _contractor,
+        address _client,
+        bytes32 _IPFSHashOfTheProposalDocument,
+        uint _totalCosts,
+        uint _oneTimeCosts,
+        uint128 _minDailyWithdrawLimit
+    ) SampleOfferWithoutReward(
+        _contractor,
+        _client,
+        _IPFSHashOfTheProposalDocument,
+        _totalCosts,
+        _oneTimeCosts,
+        _minDailyWithdrawLimit) {
+    }
+
+    function setRewardDivisor (uint _rewardDivisor) onlyClient noEther {
+        rewardDivisor = _rewardDivisor;
+    }
+
+    function setDeploymentReward (uint _deploymentReward) onlyClient noEther {
+        deploymentReward = _deploymentReward;
+    }
 
     function setRewardDivisor(uint _rewardDivisor) onlyClient noEther {
         rewardDivisor = _rewardDivisor;
