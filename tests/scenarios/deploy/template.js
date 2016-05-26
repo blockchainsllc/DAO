@@ -39,6 +39,7 @@ var _daoCreatorContract = creatorContract.new(
                         web3.toWei($offer_total, "ether"), //total costs
                         web3.toWei($offer_onetime, "ether"), //one time costs
                         web3.toWei(1, "ether"), //min daily costs
+                        $quorum_for_change,
                         {
 	                        from: contractor,
 	                        data: '$offer_bin',

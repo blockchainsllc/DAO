@@ -24,6 +24,11 @@
     "description": "Edits the Offer contract to consider a period of X seconds as a day",
     "type":"int"
 },{
+    "name": "quorum_for_change",
+    "default": 50,
+    "description": "The quorum required to change DAO client or fire the contractor",
+    "type":"int"
+}, {
     "name": "proposal_deposit",
     "default": 20,
     "description": "The default proposal deposit for every proposal of the DAO",

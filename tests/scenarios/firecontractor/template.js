@@ -13,6 +13,13 @@ var prop_id = attempt_proposal(
     false // whether it's a split proposal or not
 );
 
+console.log("TEST - proposal check: " + dao.checkProposalCode(
+    prop_id,
+    offer.address,
+    0,
+    "0xbf51f24d0000000000000000000000000000000000000000000000000000000000000002"
+));
+console.log("TEST2 - proposal hash " + dao.proposals(prop_id)[6]);
 
 console.log("Voting for the proposal to fire the contractor");
 for (i = 0; i < eth.accounts.length; i++) {
@@ -28,6 +35,7 @@ for (i = 0; i < eth.accounts.length; i++) {
 checkWork();
 addToTest('offer_balance_before', web3.fromWei(eth.getBalance(offer.address)));
 addToTest('dao_rewardaccount_before', web3.fromWei(eth.getBalance(dao.DAOrewardAccount())));
+console.log("Our proposal is: " + prop_id);
 
 setTimeout(function() {
     miner.stop();
@@ -40,6 +48,14 @@ setTimeout(function() {
         true, // should the proposal be closed after this call?
         true // should the proposal pass?
     );
+
+
+    console.log("TEST - GIVENPROPID " + offer.givenProposalID());
+    console.log("TEST - GIVENHASH: " + offer.givenHash());
+    console.log("TEST - GIVENYEA: " + offer.givenYea());
+    console.log("TEST - GIVENNAY: " + offer.givenNay());
+    console.log("TEST - CALCULATEDHASH: " + offer.calculatedHash());
+    console.log("TEST - CALCULATXDATA: " + offer.calculatedTXDATA());
 
     addToTest('offer_balance_after', web3.fromWei(eth.getBalance(offer.address)));
     addToTest('dao_rewardaccount_after', web3.fromWei(eth.getBalance(dao.DAOrewardAccount())));

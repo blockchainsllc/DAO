@@ -32,9 +32,141 @@ along with the DAO.  If not, see <http://www.gnu.org/licenses/>.
                 Contractor.
 */
 
-import "./DAO.sol";
+
+import "./ManagedAccount.sol";
+import "./Token.sol";
+import "./TokenCreation.sol";
+
+// NOTE:
+// Having customized DAO interface here because I am trying
+// to circumvent this solidity bug:
+// https://github.com/ethereum/solidity/issues/598
+// by providing uint for all variable sized fields of the proposal
+contract DAO is Token, TokenCreation {
+    uint constant creationGracePeriod = 40 days;
+    uint constant minProposalDebatePeriod = 2 weeks;
+    uint constant minSplitDebatePeriod = 1 weeks;
+    uint constant splitExecutionPeriod = 27 days;
+    uint constant quorumHalvingPeriod = 25 weeks;
+    uint constant executeProposalPeriod = 10 days;
+    uint constant maxDepositDivisor = 100;
+
+    Proposal[] public proposals;
+    uint public minQuorumDivisor;
+    uint public lastTimeMinQuorumMet;
+    address public curator;
+    mapping (address => bool) public allowedRecipients;
+    mapping (address => uint) public rewardToken;
+    uint public totalRewardToken;
+    ManagedAccount public rewardAccount;
+    ManagedAccount public DAOrewardAccount;
+    mapping (address => uint) public DAOpaidOut;
+    mapping (address => uint) public paidOut;
+    mapping (address => uint) public blocked;
+    uint public proposalDeposit;
+    uint sumOfProposalDeposits;
+
+    struct Proposal {
+        address recipient;
+        uint amount;
+
+        uint description;
+
+        uint votingDeadline;
+        bool open;
+        bool proposalPassed;
+        bytes32 proposalHash;
+        uint proposalDeposit;
+        bool newCurator;
+
+        uint splitData;
+
+        uint yea;
+        uint nay;
+
+        uint votedYes;
+
+        uint votedNo;
+
+        address creator;
+    }
+
+    struct SplitData {
+        uint splitBalance;
+        uint totalSupply;
+        uint rewardToken;
+        DAO newDAO;
+    }
+
+    modifier onlyTokenholders {}
+
+    function () returns (bool success);
+    function receiveEther() returns(bool);
+    function newProposal(
+        address _recipient,
+        uint _amount,
+        string _description,
+        bytes _transactionData,
+        uint _debatingPeriod,
+        bool _newCurator
+    ) onlyTokenholders returns (uint _proposalID);
+
+    function checkProposalCode(
+        uint _proposalID,
+        address _recipient,
+        uint _amount,
+        bytes _transactionData
+    ) constant returns (bool _codeChecksOut);
+    function vote(
+        uint _proposalID,
+        bool _supportsProposal
+    ) onlyTokenholders returns (uint _voteID);
+    function executeProposal(
+        uint _proposalID,
+        bytes _transactionData
+    ) returns (bool _success);
+    function splitDAO(
+        uint _proposalID,
+        address _newCurator
+    ) returns (bool _success);
+    function newContract(address _newContract);
+    function changeAllowedRecipients(address _recipient, bool _allowed) external returns (bool _success);
+    function changeProposalDeposit(uint _proposalDeposit) external;
+    function retrieveDAOReward(bool _toMembers) external returns (bool _success);
+    function getMyReward() returns(bool _success);
+    function withdrawRewardFor(address _account) internal returns (bool _success);
+    function transferWithoutReward(address _to, uint256 _amount) returns (bool success);
+    function transferFromWithoutReward(
+        address _from,
+        address _to,
+        uint256 _amount
+    ) returns (bool success);
+
+    function halveMinQuorum() returns (bool _success);
+    function numberOfProposals() constant returns (uint _numberOfProposals);
+    function getNewDAOAddress(uint _proposalID) constant returns (address _newDAO);
+    function isBlocked(address _account) internal returns (bool);
+    function unblockMe() returns (bool);
+
+    event ProposalAdded(
+        uint indexed proposalID,
+        address recipient,
+        uint amount,
+        bool newCurator,
+        string description
+    );
+    event Voted(uint indexed proposalID, bool position, address indexed voter);
+    event ProposalTallied(uint indexed proposalID, bool result, uint quorum);
+    event NewCurator(address indexed _newCurator);
+    event AllowedRecipientChanged(address indexed _recipient, bool _allowed);
+}
 
 contract SampleOfferWithoutReward {
+
+    enum Method {
+        RETURN_REMAINING_ETHER,
+        UPDATE_CLIENT_ADDRESS
+    }
 
     // The total cost of the Offer. Exactly this amount is transfered from the
     // Client to the Offer contract when the Offer is signed by the Client.
@@ -68,6 +200,19 @@ contract SampleOfferWithoutReward {
     DAO public client; // address of DAO
     DAO public originalClient; // address of DAO who signed the contract
     bool public isContractValid;
+    // The required quorum for executing updateClientAddress
+    // and returnRemainingEther, given at construction time. Has to be
+    // a uint ranging from 0 to 100
+    uint public quorumForChange;
+
+    // -- only for debugging - start --
+    uint public givenProposalID;
+    bytes32 public givenHash;
+    bytes32 public calculatedHash;
+    uint public givenYea;
+    uint public givenNay;
+    bytes public calculatedTXDATA;
+    // -- only for debugging - end --
 
     modifier onlyClient {
         if (msg.sender != address(client))
@@ -84,7 +229,8 @@ contract SampleOfferWithoutReward {
         bytes32 _IPFSHashOfTheProposalDocument,
         uint _totalCosts,
         uint _oneTimeCosts,
-        uint128 _minDailyWithdrawLimit
+        uint128 _minDailyWithdrawLimit,
+        uint _quorumForChange
     ) {
         contractor = _contractor;
         originalClient = DAO(_client);
@@ -94,6 +240,50 @@ contract SampleOfferWithoutReward {
         oneTimeCosts = _oneTimeCosts;
         minDailyWithdrawLimit = _minDailyWithdrawLimit;
         dailyWithdrawLimit = _minDailyWithdrawLimit;
+
+        if (_quorumForChange > 100) {
+            throw;
+        }
+        quorumForChange = _quorumForChange;
+    }
+
+    function requiredQuorumCheck(uint _proposalID, Method method) internal returns (bool _ok) {
+        if (_proposalID > client.numberOfProposals()) {
+            return false;
+        }
+        var (,,,,,proposalPassed, proposalHash,,,, yea, nay,,,) = client.proposals(_proposalID);
+        uint quorum = (yea + nay) * 100 / client.totalSupply();
+        var txData = new bytes(36);
+
+        if (method == Method.RETURN_REMAINING_ETHER) { //0xbf51f24d
+            txData[0] = 0xbf;
+            txData[1] = 0x51;
+            txData[2] = 0xf2;
+            txData[3] = 0x4d;
+        } else { // 0xf928662f
+            txData[0] = 0xf9;
+            txData[1] = 0x28;
+            txData[2] = 0x66;
+            txData[3] = 0x2f;
+        }
+        assembly { mstore(add(txData, 0x24), _proposalID) }
+
+        bytes32 hash = sha3(
+            address(this),
+            0,
+            txData
+        );
+        // -- only for debugging - start --
+        givenHash = proposalHash;
+        calculatedHash = hash;
+        givenProposalID = _proposalID;
+        givenYea = yea;
+        givenNay = nay;
+        calculatedTXDATA = txData;
+        // -- only for debugging - end --
+        return proposalPassed
+            && hash == proposalHash
+            && quorum >= quorumForChange;
     }
 
     function sign() {
@@ -114,7 +304,10 @@ contract SampleOfferWithoutReward {
     }
 
     // "fire the contractor"
-    function returnRemainingEther() onlyClient {
+    function returnRemainingEther(uint _proposalID) onlyClient {
+        if (!requiredQuorumCheck(_proposalID, Method.RETURN_REMAINING_ETHER)) {
+            return;
+        }
         if (originalClient.DAOrewardAccount().call.value(this.balance)())
             isContractValid = false;
     }
@@ -141,7 +334,10 @@ contract SampleOfferWithoutReward {
     // Change the client DAO by giving the new DAO's address
     // warning: The new DAO must come either from a split of the original
     // DAO or an update via `newContract()` so that it can claim rewards
-    function updateClientAddress(DAO _newClient) onlyClient noEther {
+    function updateClientAddress(DAO _newClient, uint _proposalID) onlyClient noEther {
+        if (!requiredQuorumCheck(_proposalID, Method.UPDATE_CLIENT_ADDRESS)) {
+            return;
+        }
         client = _newClient;
     }
 

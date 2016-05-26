@@ -27,6 +27,7 @@ def run(ctx):
             "offer_onetime": ctx.args.deploy_onetime_costs,
             "offer_total": ctx.args.deploy_total_costs,
             "min_tokens_to_create": ctx.args.deploy_min_tokens_to_create,
+            "quorum_for_change": ctx.args.deploy_quorum_for_change,
             "default_proposal_deposit": ctx.args.deploy_proposal_deposit
         },
         cb_before_creation=calculate_closing_time
