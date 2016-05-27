@@ -29,6 +29,8 @@ contract DAOInterface {
     // The amount of days for which people who try to participate in the
     // creation by calling the fallback function will still get their ether back
     uint constant creationGracePeriod = 40 days;
+    // Period of time contract execution is locked to allow splitting, make greater than minSplitDebatePeriod
+    uint constant splittingGracePeriod = 10 days;
     // The minimum debate period that a generic proposal can have
     uint constant minProposalDebatePeriod = 2 weeks;
     // The minimum debate period that a split proposal can have
@@ -107,6 +109,8 @@ contract DAOInterface {
         string description;
         // A unix timestamp, denoting the end of the voting period
         uint votingDeadline;
+        // A unix timestamp, denoting up to which point you can split before proposal execution
+        uint splitDeadline;
         // True if the proposal's votes have yet to be counted, otherwise False
         bool open;
         // True if quorum has been reached, the votes have been counted, and
@@ -442,6 +446,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
         p.description = _description;
         p.proposalHash = sha3(_recipient, _amount, _transactionData);
         p.votingDeadline = now + _debatingPeriod;
+        p.splitDeadline = p.votingDeadline + splittingGracePeriod;
         p.open = true;
         //p.proposalPassed = False; // that's default
         p.newCurator = _newCurator;
@@ -516,7 +521,12 @@ contract DAO is DAOInterface, Token, TokenCreation {
         uint waitPeriod = p.newCurator
             ? splitExecutionPeriod
             : executeProposalPeriod;
-        // If we are over deadline and waiting period, assert proposal is closed
+                
+        // Add grace period to wait time if proposal appears passable
+        if (p.yea > p.nay)
+           waitPeriod += splittingGracePeriod;
+
+        // If we are over deadline and waiting period, assert proposal is closed   
         if (p.open && now > p.votingDeadline + waitPeriod) {
             closeProposal(_proposalID);
             return;
@@ -545,7 +555,8 @@ contract DAO is DAOInterface, Token, TokenCreation {
         if (p.amount > actualBalance())
             proposalCheck = false;
 
-        uint quorum = p.yea + p.nay;
+        // removed nays from counting towards quorum
+        uint quorum = p.yea;
 
         // require 53% for calling newContract()
         if (_transactionData.length >= 4 && _transactionData[0] == 0x68
@@ -567,7 +578,13 @@ contract DAO is DAOInterface, Token, TokenCreation {
         }
 
         // Execute result
+        
         if (quorum >= minQuorum(p.amount) && p.yea > p.nay && proposalCheck) {
+
+            // check that split grace period has passed before executing proposal
+            if (now <= p.splitDeadline)
+                throw;
+
             if (!p.recipient.call.value(p.amount)(_transactionData))
                 throw;
 
