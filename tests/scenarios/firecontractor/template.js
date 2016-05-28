@@ -57,7 +57,7 @@ setTimeout(function() {
         )
     );
     addToTest('got_back_all_money', testMap['rewards_diff'].eq(testMap['offer_diff']));
-    addToTest('offer_contract_valid', offer.isContractValid());
+    addToTest('offer_contract_valid', offer.getIsContractValid());
 
     testResults();
 }, $debating_period * 1000);

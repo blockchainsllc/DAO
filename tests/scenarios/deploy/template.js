@@ -30,7 +30,7 @@ var _daoCreatorContract = creatorContract.new(
 		        if (typeof contract.address != 'undefined') {
                     addToTest('dao_address', contract.address);
 
-                    // and finally now deploy the Sample Offer
+                    // now deploy the Sample Offer
                     var offerContract = web3.eth.contract($offer_abi);
                     var offer = offerContract.new(
                         contractor,
@@ -48,10 +48,27 @@ var _daoCreatorContract = creatorContract.new(
                                 console.log(e + " at Offer Contract creation!");
 	                        } else if (typeof offer_contract.address != 'undefined') {
                                 addToTest('offer_address', offer_contract.address);
-                                testResults();
+
+                                // finally now deploy the USNRewardPAyout contract
+                                var usnContract = web3.eth.contract($usn_abi);
+                                var usn = usnContract.new(
+                                    offer_contract.address,
+                                    {
+                                        from: contractor,
+                                        data: '$usn_bin',
+	                                    gas: 3000000
+                                    }, function (e, usn_contract) {
+	                                    if (e) {
+                                            console.log(e + " at USNRewardpayout Contract creation!");
+	                                    } else if (typeof usn_contract.address != 'undefined') {
+                                            addToTest('usn_address', usn_contract.address);
+                                            testResults();
+                                        }
+                                    }
+                                );
+                                checkWork();
                             }
-                        }
-                    );
+                        });
                     checkWork();
 		        }
 		    });

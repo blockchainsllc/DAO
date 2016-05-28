@@ -199,6 +199,17 @@ def is_int(v):
     return isinstance(v, (int, long))
 
 
+def cmp_floats(a, b):
+    return abs(a - b) <= 0.01
+
+
+def cmp_string_to_int(string, num):
+    try:
+        return int(string) == num
+    except:
+        return cmp_floats(float(string), float(num))
+
+
 def compare_values(got, expect):
     if isinstance(got, float) ^ isinstance(expect, float):
         if is_int(got) or is_int(expect):
@@ -207,11 +218,13 @@ def compare_values(got, expect):
             print("ERROR: float comparison failure")
             return False
     if isinstance(got, float):
-        return abs(got - expect) <= 0.01
+        return cmp_floats(got, expect)
     elif isinstance(got, basestring) and is_int(expect):
-        return int(got) == expect
+        return cmp_string_to_int(got, expect)
     elif isinstance(expect, basestring) and is_int(got):
-        return got == int(expect)
+        return cmp_string_to_int(expect, got)
+    elif isinstance(expect, basestring) and isinstance(got, float):
+        return cmp_floats(float(expect), got)
     else:
         return got == expect
 
@@ -340,7 +353,8 @@ def edit_dao_source(
         halve_minquorum,
         split_exec_period,
         normal_pricing,
-        extra_balance_refund):
+        extra_balance_refund,
+        offer_payment_period):
     with open(os.path.join(contracts_dir, 'DAO.sol'), 'r') as f:
         contents = f.read()
 
@@ -416,7 +430,7 @@ def edit_dao_source(
     with open(new_path, "w") as f:
         f.write(contents)
 
-    # now edit TokenCreation source
+    # edit TokenCreation source
     with open(os.path.join(contracts_dir, 'TokenCreation.sol'), 'r') as f:
         contents = f.read()
 
@@ -427,7 +441,48 @@ def edit_dao_source(
     with open(os.path.join(contracts_dir, 'TokenCreationCopy.sol'), "w") as f:
         f.write(contents)
 
+    # edit SampleOfferWithoutRewards.sol
+    with open(os.path.join(contracts_dir, 'SampleOfferWithoutReward.sol'), 'r') as f:
+        contents = f.read()
+
+    contents = str_replace_or_die(
+        contents,
+        'import "./DAO.sol";',
+        'import "./DAOcopy.sol";'
+    )
+    contents = str_replace_or_die(contents, '(1 days)', str(offer_payment_period))
+    with open(os.path.join(contracts_dir, 'SampleOfferWithoutRewardCopy.sol'), "w") as f:
+        f.write(contents)
+
+    # edit SampleOffer.sol
+    with open(os.path.join(contracts_dir, 'SampleOffer.sol'), 'r') as f:
+        contents = f.read()
+
+    contents = str_replace_or_die(
+        contents,
+        'import "./SampleOfferWithoutReward.sol";',
+        'import "./SampleOfferWithoutRewardCopy.sol";'
+    )
+    with open(os.path.join(contracts_dir, 'SampleOfferCopy.sol'), "w") as f:
+        f.write(contents)
+
+    # edit USNRewardPayOut.sol
+    with open(os.path.join(contracts_dir, 'USNRewardPayOut.sol'), 'r') as f:
+        contents = f.read()
+
+    contents = str_replace_or_die(
+        contents,
+        'import "./SampleOffer.sol";',
+        'import "./SampleOfferCopy.sol";'
+    )
+    with open(os.path.join(contracts_dir, 'USNRewardPayOutCopy.sol'), "w") as f:
+        f.write(contents)
+
     return new_path
+
+
+def argtype_is_int(t):
+    return t in ["uint256", "uint128"]
 
 
 def calculate_bytecode(function_name, *args):
@@ -464,7 +519,7 @@ def calculate_bytecode(function_name, *args):
     for arg in args:
         arg_type = arg[0]
         arg_val = arg[1]
-        if arg_type == "bool" or arg_type == "uint256":
+        if arg_type == "bool" or argtype_is_int(arg_type):
             if arg_type == "bool":
                 arg_val = 1 if arg[1] is True else 0
             bytecode += "{0:0{1}x}".format(int(arg_val), 64)

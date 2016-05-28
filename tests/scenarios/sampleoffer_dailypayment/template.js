@@ -1,9 +1,10 @@
 var dao = web3.eth.contract($dao_abi).at('$dao_address');
 var offer = web3.eth.contract($offer_abi).at('$offer_address');
+var usn = web3.eth.contract($usn_abi).at('$usn_address');
 
 addToTest('dao_rewardaccount_before', eth.getBalance(dao.DAOrewardAccount()));
 // 'emulate' a USN node payment
-offer.payReward.sendTransaction({from:eth.accounts[2], value: web3.toWei($pay_reward_amount), gas: 100000});
+usn.payReward.sendTransaction({from:eth.accounts[3], value: web3.toWei($pay_reward_amount), gas: 100000});
 checkWork();
 addToTest('dao_rewardaccount_after', eth.getBalance(dao.DAOrewardAccount()));
 addToTest(
@@ -58,19 +59,27 @@ setTimeout(function() {
         true // should the proposal pass?
     );
 
-    addToTest('offer_daily_withdraw_limit', web3.fromWei(offer.dailyWithdrawLimit()));
+    addToTest('offer_daily_withdraw_limit', web3.fromWei(offer.getDailyWithdrawLimit()));
 
     addToTest('contractor_before', eth.getBalance(contractor));
     // now the contractor can attempt to withdraw some money and we should check that this
     // occurs and is equal to the daily limit
+    console.log("-->OfferBalance: " + web3.fromWei(eth.getBalance(offer.address)));
     offer.getDailyPayment.sendTransaction({from: contractor, gas: 100000});
+    var withdrawTime = new BigNumber(Math.floor(Date.now() / 1000));
     checkWork();
+    var expectedWei = ((withdrawTime.sub(offer.getDateOfSignature())).mul(offer.getDailyWithdrawLimit()))
+        .div(new BigNumber($offer_payment_period));
+    console.log("-->ExpectedWei: " + expectedWei);
+    console.log("-->OfferBalanceAfter: " + web3.fromWei(eth.getBalance(offer.address)));
     addToTest('contractor_after', eth.getBalance(contractor));
     addToTest('contractor_diff',
-              parseFloat(web3.fromWei(bigDiff(testMap['contractor_after'], testMap['contractor_before'])))
+              bigDiff(testMap['contractor_after'], testMap['contractor_before'])
              );
-    
-
+    // check that the contractor gets the Wei expected, within a 0.1 Ether difference
+    var contractor_profit = testMap['contractor_diff'].sub(expectedWei).abs();
+    console.log("-->contractor_profit: " + contractor_profit);
+    addToTest('contractor_paid_expected', contractor_profit.lt(new BigNumber(100000000000000000)));
     testResults();
 }, $debating_period * 1000);
 console.log("Wait for end of debating period");

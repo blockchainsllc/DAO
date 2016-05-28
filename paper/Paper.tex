@@ -180,7 +180,7 @@ contract TokenInterface {
 \begin{multicols}{2}
 
 Above is the interface of the ‘Token’ contract. The interfaces of these contracts are used in the text of this document to give a simple overview of the functions and variables used in the contract, the full implementation can be found in the appendix (\ref{app:Token}). This contract represents the standard token as described here:
-\url{https://github.com/ethereum/wiki/wiki/Standardized_Contract_APIs}, and the contract \url{https://github.com/ConsenSys/Tokens/blob/master/Token_Contracts/contracts/Standard_Token.sol} was used as a starting point for the contract’s creation.
+\url{https://github.com/ethereum/wiki/Standardized_Contract_APIs}, and the contract \url{https://github.com/ConsenSys/Tokens/blob/master/Token_Contracts/contracts/StandardToken.sol} was used as a starting point for the contract’s creation.
 
 The map \verb|balances| stores the number of DAO tokens which are controlled by an address. All contracts which derive from \verb|TokenInterface| can directly modify this map, but only $4$ functions do so: \verb|createTokenProxy|, \verb|transfer| , \verb|transferFrom| and \verb|splitDAO|.
 

@@ -10,11 +10,11 @@ if ($should_halve_minquorum) {
     dao.halveMinQuorum.sendTransaction({from: eth.accounts[0], gas: 1000000});
 }
 
-addToTest('creator_balance_before', web3.fromWei(eth.getBalance(proposalCreator)));
+addToTest('creator_balance_before', eth.getBalance(proposalCreator));
 var prop_id = attempt_proposal(
     dao, // DAO in question
     '$offer_address', // recipient
-    contractor, // proposal creator
+    proposalCreator, // proposal creator
     $offer_amount, // proposal amount in ether
     '$offer_desc', // description
     '$transaction_bytecode', //bytecode
@@ -23,10 +23,10 @@ var prop_id = attempt_proposal(
     false // whether it's a split proposal or not
 );
 
-addToTest('creator_balance_after_proposal', web3.fromWei(eth.getBalance(contractor)));
+addToTest('creator_balance_after_proposal', eth.getBalance(proposalCreator));
 addToTest(
     'calculated_deposit',
-    bigDiffRound(testMap['creator_balance_before'], testMap['creator_balance_after_proposal'])
+    web3.fromWei(testMap['creator_balance_before'].sub(testMap['creator_balance_after_proposal']))
 );
 addToTest('dao_proposals_number', dao.numberOfProposals());
 
@@ -46,7 +46,7 @@ for (i = 0; i < votes.length; i++) {
 checkWork();
 addToTest('proposal_yay', parseInt(web3.fromWei(dao.proposals(prop_id)[9])));
 addToTest('proposal_nay', parseInt(web3.fromWei(dao.proposals(prop_id)[10])));
-addToTest('contractor_balance_before', web3.fromWei(eth.getBalance(contractor)));
+addToTest('contractor_balance_before', eth.getBalance(contractor));
 
 setTimeout(function() {
     miner.stop();
@@ -55,23 +55,23 @@ setTimeout(function() {
         dao, // target DAO
         prop_id, // proposal ID
         '$transaction_bytecode', // transaction bytecode
-        contractor, // proposal creator
+        proposalCreator, // proposal creator
         true, // should the proposal be closed after this call?
         true // should the proposal pass?
     );
 
-    addToTest('creator_balance_after_execution', web3.fromWei(eth.getBalance(contractor)));
-    addToTest('contractor_balance_after', web3.fromWei(eth.getBalance(contractor).minus(web3.toWei($proposal_deposit))));
+    addToTest('creator_balance_after_execution', eth.getBalance(proposalCreator));
+    addToTest('contractor_balance_after', eth.getBalance(contractor));
 
     addToTest(
         'onetime_costs',
-        bigDiffRound(testMap['contractor_balance_after'], testMap['contractor_balance_before'])
+        web3.fromWei(testMap['contractor_balance_after'].sub(testMap['contractor_balance_before']))
     );
     addToTest(
         'deposit_returned',
-        Math.round(testMap['creator_balance_after_execution']) == Math.round(testMap['creator_balance_before'])
+        testMap['creator_balance_after_execution'].sub(testMap['creator_balance_before']).lt(new BigNumber(100000000000000000))
     );
-    addToTest('offer_promise_valid', offer.isContractValid());
+    addToTest('offer_promise_valid', offer.getIsContractValid());
 
     testResults();
 }, $debating_period * 1000);
