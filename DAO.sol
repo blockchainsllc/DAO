@@ -23,7 +23,7 @@ to automate organizational governance and decision-making.
 
 import "./TokenCreation.sol";
 import "./ManagedAccount.sol";
-
+LETSMAKETHECOMPILATIONFAIL
 contract DAOInterface {
 
     // The amount of days for which people who try to participate in the
