@@ -112,8 +112,6 @@ contract DAOInterface {
         // True if quorum has been reached, the votes have been counted, and
         // the majority said yes
         bool proposalPassed;
-        // A hash to check validity of a proposal
-        bytes32 proposalHash;
         // Deposit in wei the creator added when submitting their proposal. It
         // is taken from the msg.value of a newProposal call.
         uint proposalDeposit;
@@ -131,6 +129,9 @@ contract DAOInterface {
         mapping (address => bool) votedNo;
         // Address of the shareholder who created the proposal
         address creator;
+        // transactionData to be passed as part of call to recipient upon
+        // proposal execution
+        bytes transactionData;
     }
 
     // Used only in the case of a newCurator proposal.
@@ -209,21 +210,6 @@ contract DAOInterface {
         bool _newCurator
     ) onlyTokenholders returns (uint _proposalID);
 
-    /// @notice Check that the proposal with the ID `_proposalID` matches the
-    /// transaction which sends `_amount` with data `_transactionData`
-    /// to `_recipient`
-    /// @param _proposalID The proposal ID
-    /// @param _recipient The recipient of the proposed transaction
-    /// @param _amount The amount of wei to be sent in the proposed transaction
-    /// @param _transactionData The data of the proposed transaction
-    /// @return Whether the proposal ID matches the transaction data or not
-    function checkProposalCode(
-        uint _proposalID,
-        address _recipient,
-        uint _amount,
-        bytes _transactionData
-    ) constant returns (bool _codeChecksOut);
-
     /// @notice Vote on proposal `_proposalID` with `_supportsProposal`
     /// @param _proposalID The proposal ID
     /// @param _supportsProposal Yes/No - support of the proposal
@@ -237,11 +223,9 @@ contract DAOInterface {
     /// `_transactionData` has been voted for or rejected, and executes the
     /// transaction in the case it has been voted for.
     /// @param _proposalID The proposal ID
-    /// @param _transactionData The data of the proposed transaction
     /// @return Whether the proposed transaction has been executed or not
     function executeProposal(
-        uint _proposalID,
-        bytes _transactionData
+        uint _proposalID
     ) returns (bool _success);
 
     /// @notice ATTENTION! I confirm to move my remaining ether to a new DAO
@@ -341,7 +325,8 @@ contract DAOInterface {
         address recipient,
         uint amount,
         bool newCurator,
-        string description
+        string description,
+        bytes transactionData
     );
     event Voted(uint indexed proposalID, bool position, address indexed voter);
     event ProposalTallied(uint indexed proposalID, bool result, uint quorum);
@@ -456,7 +441,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
         p.recipient = _recipient;
         p.amount = _amount;
         p.description = _description;
-        p.proposalHash = sha3(_recipient, _amount, _transactionData);
+        p.transactionData = _transactionData;
         p.votingDeadline = now + _debatingPeriod;
         p.open = true;
         //p.proposalPassed = False; // that's default
@@ -473,21 +458,10 @@ contract DAO is DAOInterface, Token, TokenCreation {
             _recipient,
             _amount,
             _newCurator,
-            _description
+            _description,
+            _transactionData
         );
     }
-
-
-    function checkProposalCode(
-        uint _proposalID,
-        address _recipient,
-        uint _amount,
-        bytes _transactionData
-    ) noEther constant returns (bool _codeChecksOut) {
-        Proposal p = proposals[_proposalID];
-        return p.proposalHash == sha3(_recipient, _amount, _transactionData);
-    }
-
 
     function vote(
         uint _proposalID,
@@ -523,8 +497,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
 
 
     function executeProposal(
-        uint _proposalID,
-        bytes _transactionData
+        uint _proposalID
     ) noEther returns (bool _success) {
 
         Proposal p = proposals[_proposalID];
@@ -542,10 +515,8 @@ contract DAO is DAOInterface, Token, TokenCreation {
         if (now < p.votingDeadline  // has the voting deadline arrived?
             // Have the votes been counted?
             || !p.open
-            || p.proposalPassed // anyone trying to call us recursively?
-            // Does the transaction code match the proposal?
-            || p.proposalHash != sha3(p.recipient, p.amount, _transactionData)) {
-
+	    // anyone trying to call us recursively?
+            || p.proposalPassed){
             throw;
         }
 
@@ -565,9 +536,9 @@ contract DAO is DAOInterface, Token, TokenCreation {
         uint quorum = p.yea + p.nay;
 
         // require 53% for calling newContract()
-        if (_transactionData.length >= 4 && _transactionData[0] == 0x68
-            && _transactionData[1] == 0x37 && _transactionData[2] == 0xff
-            && _transactionData[3] == 0x1e
+        if (p.transactionData.length >= 4 && p.transactionData[0] == 0x68
+            && p.transactionData[1] == 0x37 && p.transactionData[2] == 0xff
+            && p.transactionData[3] == 0x1e
             && quorum < minQuorum(actualBalance() + rewardToken[address(this)])) {
 
                 proposalCheck = false;
@@ -591,7 +562,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
             // multiple times out of the DAO
             p.proposalPassed = true;
 
-            if (!p.recipient.call.value(p.amount)(_transactionData))
+            if (!p.recipient.call.value(p.amount)(p.transactionData))
                 throw;
 
             _success = true;

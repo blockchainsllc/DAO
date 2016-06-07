@@ -34,7 +34,6 @@ setTimeout(function() {
     attempt_execute_proposal(
         dao, // target DAO
         claim_prop_id, // proposal ID
-        '$transaction_bytecode', // transaction bytecode
         attacker, // proposal creator
         false, // should the proposal be closed after this call?
         false // should the proposal pass?

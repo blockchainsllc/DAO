@@ -54,7 +54,6 @@ setTimeout(function() {
     attempt_execute_proposal(
         dao, // target DAO
         prop_id, // proposal ID
-        '$transaction_bytecode', // transaction bytecode
         proposalCreator, // proposal creator
         true, // should the proposal be closed after this call?
         true // should the proposal pass?

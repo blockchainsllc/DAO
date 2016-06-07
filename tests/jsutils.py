@@ -122,7 +122,6 @@ function attempt_split(argdao, prop_id, user, new_curator, split_exec_period) {
 function attempt_execute_proposal(
     argdao,
     prop_id,
-    bytecode,
     prop_creator,
     expect_closed,
     expect_pass) {
@@ -136,7 +135,6 @@ function attempt_execute_proposal(
 
     argdao.executeProposal.sendTransaction(
         prop_id,
-        bytecode,
         {from: prop_creator, gas:4700000}
     );
     checkWork();

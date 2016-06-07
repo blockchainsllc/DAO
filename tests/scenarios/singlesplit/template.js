@@ -82,7 +82,6 @@ setTimeout(function() {
             attempt_execute_proposal(
                 newdao, // target DAO
                 new_prop_id, // proposal ID
-                '', // transaction bytecode
                 new_curator, // proposal creator
                 true, // should the proposal be closed after this call?
                 true // should the proposal pass?
