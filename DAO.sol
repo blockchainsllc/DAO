@@ -159,6 +159,9 @@ contract DAOInterface {
         DAO newDAO;
     }
 
+    // used when returning the last VotingResult
+    enum VoteResult { NotVoted, Yes, No, NoTokens }
+
     // Used to restrict access to certain functions to only DAO Token Holders
     modifier onlyTokenholders {}
 
@@ -244,6 +247,11 @@ contract DAOInterface {
     /// @param _proposalID The proposal ID
     /// @param _supportsProposal Yes/No - support of the proposal
     function vote(uint _proposalID, bool _supportsProposal);
+
+    /// @notice returns the last Vote on proposal `_proposalID` 
+    /// @param _proposalID The proposal ID
+    /// @return _result NotVoted/Yes/No/NoTokens 
+    function lastVote(uint _proposalID) constant returns (VoteResult _result);
 
     /// @notice Checks whether proposal `_proposalID` with transaction data
     /// `_transactionData` has been voted for or rejected, and executes the
@@ -331,6 +339,19 @@ contract DAOInterface {
     /// achieved in 52 weeks
     /// @return Whether the change was successful or not
     function halveMinQuorum() returns (bool _success);
+
+    /// @return total number of dependencies of a proposal
+    function numberOfDependencies(uint _proposalID) constant returns (uint _numberOfDependencies); 
+
+    /// @param _proposalID Id of the proposal
+    /// @param _index the index within the dependencies
+    /// @return the id of the Proposal it depends on
+    function requiredProposalId(uint _proposalID,uint _index) constant returns (uint _requiredProposalID); 
+
+    /// @param _proposalID Id of the proposal
+    /// @param _index the index within the dependencies
+    /// @return the type of the Proposal it depends on
+    function requiredProposalType(uint _proposalID,uint _index) constant returns (bool _requiredProposalType);
 
     /// @return total number of proposals ever created
     function numberOfProposals() constant returns (uint _numberOfProposals);
@@ -539,6 +560,15 @@ contract DAO is DAOInterface, Token, TokenCreation {
         Voted(_proposalID, _supportsProposal, msg.sender);
     }
 
+    function lastVote(uint _proposalID) constant returns (VoteResult _result) {
+        Proposal p = proposals[_proposalID];
+        if (p.votedYes[msg.sender])     return VoteResult.Yes;
+        if (p.votedNo [msg.sender])     return VoteResult.No;
+        if (balanceOf(msg.sender) == 0) return VoteResult.NoTokens;
+        return VoteResult.NotVoted;
+    }
+
+
     function unVote(uint _proposalID){
         Proposal p = proposals[_proposalID];
 
@@ -584,7 +614,6 @@ contract DAO is DAOInterface, Token, TokenCreation {
                 p.preSupport = false;
         }
     }
-
 
     function executeProposal(
         uint _proposalID,
@@ -963,7 +992,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
     }
 
 
-    function minQuorum(uint _value) internal constant returns (uint _minQuorum) {
+    function minQuorum(uint _value) constant returns (uint _minQuorum) {
         // minimum of 20% and maximum of 47.6%
         return totalSupply / minQuorumDivisor +
             (_value * totalSupply) / (3 * (actualBalance() + rewardToken[address(this)]));
@@ -999,6 +1028,18 @@ contract DAO is DAOInterface, Token, TokenCreation {
         );
     }
 
+    function numberOfDependencies(uint _proposalID) constant returns (uint _numberOfDependencies) {
+        return proposals[_proposalID].dependencies.length;
+    }
+
+    function requiredProposalId(uint _proposalID,uint _index) constant returns (uint _requiredProposalID) {
+       return proposals[_proposalID].dependencies[_index];
+    }
+
+    function requiredProposalType(uint _proposalID,uint _index) constant returns (bool _requiredProposalType) {
+       return proposals[_proposalID].dependenciesType[_index];
+    }
+
     function numberOfProposals() constant returns (uint _numberOfProposals) {
         // Don't count index 0. It's used by isBlocked() and exists from start
         return proposals.length - 1;
@@ -1008,7 +1049,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
         return proposals[_proposalID].splitData[0].newDAO;
     }
 
-    function isBlocked(address _account) internal returns (bool) {
+    function isBlocked(address _account) contant returns (bool) {
         if (blocked[_account] == 0)
             return false;
         Proposal p = proposals[blocked[_account]];
