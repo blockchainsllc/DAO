@@ -362,7 +362,7 @@ contract DAOInterface {
 
     /// @param _account The address of the account which is checked.
     /// @return Whether the account is blocked (not allowed to transfer tokens) or not.
-    function isBlocked(address _account) internal returns (bool);
+    function isBlocked(address _account) constant returns (bool);
 
     /// @notice If the caller is blocked by a proposal whose voting deadline
     /// has exprired then unblock him.
@@ -1049,7 +1049,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
         return proposals[_proposalID].splitData[0].newDAO;
     }
 
-    function isBlocked(address _account) contant returns (bool) {
+    function isBlocked(address _account) constant returns (bool) {
         if (blocked[_account] == 0)
             return false;
         Proposal p = proposals[blocked[_account]];
