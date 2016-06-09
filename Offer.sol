@@ -66,7 +66,6 @@ contract Offer {
     uint dateOfAcceptance;
     DAO client;          // The address of the current Client.
     DAO originalClient;  // The address of the Client who accepted the Offer.
-    bool isContractValid;
 
     modifier onlyClient {
         if (msg.sender != address(client))
@@ -137,7 +136,7 @@ contract Offer {
     }
 
     function getIsContractValid() noEther constant returns (bool) {
-        return isContractValid;
+        return this.balance > 0;
     }
 
     function accept() {
@@ -148,7 +147,6 @@ contract Offer {
         if (!contractor.send(initialWithdraw))
             throw;
         dateOfAcceptance = now;
-        isContractValid = true;
         lastWithdraw = now;
     }
 
@@ -163,8 +161,7 @@ contract Offer {
     // on an invalid (balance 0) Offer has no effect. The Contractor looses
     // right to any ethers left in the Offer.
     function terminate() noEther onlyClient {
-        if (originalClient.DAOrewardAccount().call.value(this.balance)())
-            isContractValid = false;
+        originalClient.DAOrewardAccount().call.value(this.balance)();
     }
 
     // Withdraw to the Contractor.
