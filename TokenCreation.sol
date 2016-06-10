@@ -34,15 +34,13 @@ contract TokenCreationInterface {
     uint public minTokensToCreate;
     // True if the DAO reached its minimum fueling goal, false otherwise
     bool public isFueled;
-    // For DAO splits - if privateCreation is 0, then it is a public token
-    // creation, otherwise only the address stored in privateCreation is
+    // For DAO splits - if parentDAO is 0, then it is a public token
+    // creation, otherwise only the address stored in parentDAO is
     // allowed to create tokens
-    address public privateCreation;
+    address public parentDAO;
     // hold extra ether which has been sent after the DAO token
     // creation rate has increased
     ManagedAccount public extraBalance;
-    // tracks the amount of wei given from each contributor (used for refund)
-    mapping (address => uint256) weiGiven;
 
     /// @dev Constructor setting the minimum fueling goal and the
     /// end of the Token Creation
@@ -71,10 +69,6 @@ contract TokenCreationInterface {
     /// not reach its minimum fueling goal
     function refund();
 
-    /// @return The divisor used to calculate the token creation rate during
-    /// the creation phase
-    function divisor() constant returns (uint divisor);
-
     event FuelingToDate(uint value);
     event CreatedToken(address indexed to, uint amount);
     event Refund(address indexed to, uint value);
@@ -85,15 +79,14 @@ contract TokenCreation is TokenCreationInterface, Token {
     function TokenCreation(
         uint _minTokensToCreate,
         uint _closingTime,
-        address _privateCreation,
+        address _parentDAO,
         string _tokenName,
         string _tokenSymbol,
         uint8 _decimalPlaces) {
 
         closingTime = _closingTime;
         minTokensToCreate = _minTokensToCreate;
-        privateCreation = _privateCreation;
-        extraBalance = new ManagedAccount(address(this), true);
+        parentDAO = _parentDAO;
         name = _tokenName;
         symbol = _tokenSymbol;
         decimals = _decimalPlaces;
@@ -102,13 +95,11 @@ contract TokenCreation is TokenCreationInterface, Token {
 
     function createTokenProxy(address _tokenHolder) returns (bool success) {
         if (now < closingTime && msg.value > 0
-            && (privateCreation == 0 || privateCreation == msg.sender)) {
+            && (parentDAO == 0 || parentDAO == msg.sender)) {
 
-            uint token = (msg.value * 20) / divisor();
-            extraBalance.call.value(msg.value - token)();
+            uint token = msg.value;
             balances[_tokenHolder] += token;
             totalSupply += token;
-            weiGiven[_tokenHolder] += msg.value;
             CreatedToken(_tokenHolder, token);
             if (totalSupply >= minTokensToCreate && !isFueled) {
                 isFueled = true;
@@ -120,33 +111,12 @@ contract TokenCreation is TokenCreationInterface, Token {
     }
 
     function refund() noEther {
-        if (now > closingTime && !isFueled) {
-            // Get extraBalance - will only succeed when called for the first time
-            if (extraBalance.balance >= extraBalance.accumulatedInput())
-                extraBalance.payOut(address(this), extraBalance.accumulatedInput());
-
-            // Execute refund
-            if (msg.sender.call.value(weiGiven[msg.sender])()) {
-                Refund(msg.sender, weiGiven[msg.sender]);
+        if (now > closingTime && !isFueled && parentDAO == 0) {
+            if (msg.sender.call.value(balances[msg.sender])()) {
+                Refund(msg.sender, balances[msg.sender]);
                 totalSupply -= balances[msg.sender];
                 balances[msg.sender] = 0;
-                weiGiven[msg.sender] = 0;
             }
-        }
-    }
-
-    function divisor() constant returns (uint divisor) {
-        // The number of (base unit) tokens per wei is calculated
-        // as `msg.value` * 20 / `divisor`
-        // The fueling period starts with a 1:1 ratio
-        if (closingTime - 2 weeks > now) {
-            return 20;
-        // Followed by 10 days with a daily creation rate increase of 5%
-        } else if (closingTime - 4 days > now) {
-            return (20 + (now - (closingTime - 2 weeks)) / (1 days));
-        // The last 4 days there is a constant creation rate ratio of 1:1.5
-        } else {
-            return 30;
         }
     }
 }
