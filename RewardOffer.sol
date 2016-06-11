@@ -36,14 +36,16 @@ contract RewardOffer is Offer {
         bytes32 _hashOfTheProposalDocument,
         uint _totalCost,
         uint _initialWithdrawal,
-        uint128 _minDailyWithdrawalLimit
+        uint128 _minDailyWithdrawalLimit,
+        uint _payoutFreezePeriod
     ) Offer(
         _contractor,
         _client,
         _hashOfTheProposalDocument,
         _totalCost,
         _initialWithdrawal,
-        _minDailyWithdrawalLimit) {
+        _minDailyWithdrawalLimit,
+        _payoutFreezePeriod) {
     }
 
     function setRewardDivisor(uint _rewardDivisor) onlyClient noEther {

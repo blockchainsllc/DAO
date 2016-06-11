@@ -75,6 +75,9 @@ contract Offer {
     bool isContractValid;
     bool initialWithdrawalDone;
 
+    // Voting deadline of the proposal
+    uint votingDeadline;
+
     modifier onlyClient {
         if (msg.sender != address(client))
             throw;
@@ -160,7 +163,9 @@ contract Offer {
     function sign() {
         if (msg.sender != address(originalClient) // no good samaritans give us ether
             || msg.value != totalCost    // no under/over payment
-            || dateOfSignature != 0)    // don't accept twice
+            || dateOfSignature != 0      // don't accept twice
+            || votingDeadline == 0       // votingDeadline needs to be set
+            || now < votingDeadline + 8 days)
             throw;
 
         lastWithdrawal = now + payoutFreezePeriod;
@@ -171,6 +176,19 @@ contract Offer {
         }
         dateOfSignature = now;
         isContractValid = true;
+    }
+
+    // Once a proposal is submitted, the Contractor should call this
+    // function to get the voting deadline of the proposal
+    function getVotingDeadline(uint _proposalID) noEther {
+        if (msg.sender != contractor) throw;
+        var (recipient,,,_votingDeadline,open,) = client.proposals(_proposalID);
+        if (recipient == address(this)
+            && _votingDeadline > now
+            && open
+            && _votingDeadline == 0) {
+            votingDeadline = _votingDeadline;
+        }
     }
 
     function setDailyWithdrawLimit(uint128 _dailyWithdrawalLimit) onlyClient noEther {
@@ -195,7 +213,7 @@ contract Offer {
     // Executing this function before the Offer is accepted by the Client
     // makes no sense as this contract has no ether.
     function withdraw() noEther {
-        if (msg.sender != contractor || now < dateOfSignature + payoutFreezePeriod)
+        if (msg.sender != contractor || now < votingDeadline + payoutFreezePeriod)
             throw;
         uint timeSincelastWithdrawal = now - lastWithdrawal;
         // Calculate the amount using 1 second precision.
@@ -213,7 +231,7 @@ contract Offer {
     // if that did not already happen during the signing
     function performInitialWithdrawal() noEther {
         if (msg.sender != contractor
-            || now < dateOfSignature + payoutFreezePeriod
+            || now < votingDeadline + payoutFreezePeriod
             || initialWithdrawalDone ) {
             throw;
         }
