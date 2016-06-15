@@ -638,32 +638,36 @@ contract DAO is DAOInterface, Token, TokenCreation {
         uint senderBalance = balances[msg.sender];
         uint fundsToBeMoved = (senderBalance * actualBalance()) / totalSupply;
         balances[msg.sender] = 0;
-        msg.sender.send(fundsToBeMoved);
+        if (msg.sender.send(fundsToBeMoved)) {
 
         // Assign reward rights
-        uint rewardTokenToBeMoved =
-            (senderBalance * rewardToken[address(this)]) /
-            totalSupply;
+            uint rewardTokenToBeMoved =
+                (senderBalance * rewardToken[address(this)]) /
+                totalSupply;
 
-        uint paidOutToBeMoved = DAOpaidOut[address(this)] * rewardTokenToBeMoved /
-            rewardToken[address(this)];
+            uint paidOutToBeMoved = DAOpaidOut[address(this)] * rewardTokenToBeMoved /
+                rewardToken[address(this)];
 
-        rewardToken[msg.sender] += rewardTokenToBeMoved;
-        if (rewardToken[address(this)] < rewardTokenToBeMoved)
+            rewardToken[msg.sender] += rewardTokenToBeMoved;
+            if (rewardToken[address(this)] < rewardTokenToBeMoved)
+                throw;
+            rewardToken[address(this)] -= rewardTokenToBeMoved;
+
+            DAOpaidOut[msg.sender] += paidOutToBeMoved;
+            if (DAOpaidOut[address(this)] < paidOutToBeMoved)
+                throw;
+            DAOpaidOut[address(this)] -= paidOutToBeMoved;
+
+            // Burn DAO Tokens
+            Transfer(msg.sender, 0, senderBalance);
+            withdrawRewardFor(msg.sender); // be nice, and get his rewards
+            totalSupply -= senderBalance;
+            paidOut[msg.sender] = 0;
+            return true;
+        }
+        else {
             throw;
-        rewardToken[address(this)] -= rewardTokenToBeMoved;
-
-        DAOpaidOut[msg.sender] += paidOutToBeMoved;
-        if (DAOpaidOut[address(this)] < paidOutToBeMoved)
-            throw;
-        DAOpaidOut[address(this)] -= paidOutToBeMoved;
-
-        // Burn DAO Tokens
-        Transfer(msg.sender, 0, senderBalance);
-        withdrawRewardFor(msg.sender); // be nice, and get his rewards
-        totalSupply -= senderBalance;
-        paidOut[msg.sender] = 0;
-        return true;
+        }
     }
 
     function splitDAO(
