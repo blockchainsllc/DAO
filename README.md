@@ -2,6 +2,8 @@
 
 [![Build Status](https://travis-ci.org/slockit/DAO.png)](https://travis-ci.org/slockit/DAO)
 
+:exclamation: **WARNING**: Contains a bug making it possible to steal funds from the contract. **DO NOT USE IN PRODUCTION** until it's been fixed.
+
 ## What is it?
 A Standard DAO (Decentralized Autonomous Organization) framework written in Solidity to run on the Ethereum blockchain. 
 
