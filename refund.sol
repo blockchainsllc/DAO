@@ -65,22 +65,27 @@ contract DAORefund is owned {
 
     // Allows the refund contract on doing any actions except token transfers
     function execute(address _target, bytes _data) onlyOwner  {
-        // Don't allow it to make a 'approve' (0x095ea7b3) action on the dao 
-        if (_target == address(DAOTokens)
-            && _data[0] == 0x09
-            && _data[1] == 0x5e
-            && _data[2] == 0xa7
-            && _data[3] == 0xb3
-        ) throw;
-        
-        // Don't allow it to make a 'transfer' (0xa9059cbb) action on the dao 
-        if (_target == address(DAOTokens)
-            && _data[0] == 0xa9
-            && _data[1] == 0x05
-            && _data[2] == 0x9c
-            && _data[3] == 0xbb
-        ) throw;
-        
+        if (_target == address(DAOTokens) && _data.length >= 4 &&
+            //do not allow any token transfer related actions on the DAO
+            ( // 0x095ea7b3: approve()
+                (_data[0] == 0x09 && _data[1] == 0x5e
+                 && _data[2] == 0xa7 && _data[3] == 0xb3))
+            || ( // 0xa9059cbb: transfer(address,uint256)
+                (_data[0] == 0xa9 && _data[1] == 0x05
+                 && _data[2] == 0x9c && _data[3] == 0xbb))
+            || ( // 0x4e10c3ee: transferWithoutReward(address,uint256)
+                (_data[0] == 0x4e && _data[1] == 0x10
+                 && _data[2] == 0xc3 && _data[3] == 0xee))
+            || ( // 0x23b872dd: transferFrom(address,address,uint256)
+                (_data[0] == 0x23 && _data[1] == 0xb8
+                 && _data[2] == 0x72 && _data[3] == 0xdd))
+            || ( // 0xdbde1988: transferFromWithoutReward(address,address,uint256)
+                (_data[0] == 0xdb && _data[1] == 0xde
+                 && _data[2] == 0x19 && _data[3] == 0x88))
+        ) {
+            throw;
+        }
+
         _target.call.value(0)(_data);
     }
     
