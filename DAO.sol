@@ -64,6 +64,8 @@ contract DAOInterface {
     mapping (address => uint) public rewardToken;
     // Total supply of rewardToken
     uint public totalRewardToken;
+    // DAO tokens recieved from the parent DAO through swapTokens
+    uint public tokensReceived;
 
     // The account used to manage the rewards which are to be distributed to the
     // DAO Token Holders of this DAO
@@ -401,6 +403,32 @@ contract DAO is DAOInterface, Token, TokenCreation {
         return true;
     }
 
+    function checkNewProposalRestrictions(
+        address _recipient,
+        bytes _transactionData) internal returns (bool) {
+        if (_recipient == privateCreation && _transactionData.length >= 4 &&
+            // the new DAO should not be able to transfer any of its parent DAO tokens
+            ( // 0x095ea7b3: approve()
+                (_transactionData[0] == 0x09 && _transactionData[1] == 0x5e
+                 && _transactionData[2] == 0xa7 && _transactionData[3] == 0xb3))
+            || ( // 0xa9059cbb: transfer(address,uint256)
+                (_transactionData[0] == 0xa9 && _transactionData[1] == 0x05
+                 && _transactionData[2] == 0x9c && _transactionData[3] == 0xbb))
+            || ( // 0x4e10c3ee: transferWithoutReward(address,uint256)
+                (_transactionData[0] == 0x4e && _transactionData[1] == 0x10
+                 && _transactionData[2] == 0xc3 && _transactionData[3] == 0xee))
+            || ( // 0x23b872dd: transferFrom(address,address,uint256)
+                (_transactionData[0] == 0x23 && _transactionData[1] == 0xb8
+                 && _transactionData[2] == 0x72 && _transactionData[3] == 0xdd))
+            || ( // 0xdbde1988: transferFromWithoutReward(address,address,uint256)
+                (_transactionData[0] == 0xdb && _transactionData[1] == 0xde
+                 && _transactionData[2] == 0x19 && _transactionData[3] == 0x88))
+            ) {
+            return false;
+        }
+        return true;
+    }
+
 
     function newProposal(
         address _recipient,
@@ -431,7 +459,8 @@ contract DAO is DAOInterface, Token, TokenCreation {
 
         if (!isFueled
             || now < closingTime
-            || (msg.value < proposalDeposit && !_newCurator)) {
+            || (msg.value < proposalDeposit && !_newCurator)
+            || !checkNewProposalRestrictions(_recipient, _transactionData)) {
 
             throw;
         }
@@ -855,6 +884,7 @@ contract DAO is DAOInterface, Token, TokenCreation {
 
     function minQuorum(uint _value) internal constant returns (uint _minQuorum) {
         // minimum of 20% and maximum of 53.33%
+        uint combinedTotalSupply = DAO(privateCreation).totalSupply() + totalSupply - tokensReceived;
         return totalSupply / minQuorumDivisor +
             (_value * totalSupply) / (3 * (actualBalance() + rewardToken[address(this)]));
     }
@@ -912,6 +942,21 @@ contract DAO is DAOInterface, Token, TokenCreation {
 
     function unblockMe() returns (bool) {
         return isBlocked(msg.sender);
+    }
+
+    // approve DAO to transfer your tokens prior to that
+    function swapTokens() {
+         // privateCreation renamed to parentDAO removing extraBalance PR!
+        uint balance = DAO(privateCreation).balanceOf(msg.sender);
+        if (DAO(privateCreation).transferFrom(msg.sender, this, balance)) {
+            balances[msg.sender] += balance;
+            totalSupply += balance;
+            tokensReceived += balance;
+            if (totalSupply >= minTokensToCreate && !isFueled) {
+                isFueled = true;
+                FuelingToDate(totalSupply);
+            }
+        }
     }
 }
 
