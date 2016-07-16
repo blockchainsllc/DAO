@@ -97,7 +97,6 @@ contract TokenCreation is TokenCreationInterface, Token {
         name = _tokenName;
         symbol = _tokenSymbol;
         decimals = _decimalPlaces;
-        
     }
 
     function createTokenProxy(address _tokenHolder) returns (bool success) {
@@ -120,19 +119,20 @@ contract TokenCreation is TokenCreationInterface, Token {
     }
 
     function refund() noEther {
-        if (now > closingTime && !isFueled) {
+        if (now > closingTime && !isFueled
+            && (balances[msg.sender] > 0 && weiGiven[msg.sender] > 0)) {
             // Get extraBalance - will only succeed when called for the first time
             if (extraBalance.balance >= extraBalance.accumulatedInput())
                 extraBalance.payOut(address(this), extraBalance.accumulatedInput());
 
             // Execute refund
-            if (msg.sender.send(weiGiven[msg.sender])) { 
-            // its the recipients responsibilty to ensure 
-            // their address does not use too much gas
+            totalSupply -= balances[msg.sender];
+            balances[msg.sender] = 0;
+            weiGiven[msg.sender] = 0;
+            if (msg.sender.call.value(weiGiven[msg.sender])()) {
                 Refund(msg.sender, weiGiven[msg.sender]);
-                totalSupply -= balances[msg.sender];
-                balances[msg.sender] = 0;
-                weiGiven[msg.sender] = 0;
+            } else {
+                throw;
             }
         }
     }
