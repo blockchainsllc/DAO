@@ -283,6 +283,22 @@ contract DAOInterface {
     /// @return Whether the call was successful
     function retrieveDAOReward(bool _toMembers) external returns (bool _success);
 
+
+    /// @notice Collenct all ingherited rewards from ancestors DAOs
+    /// @param _toMembers If true rewards are moved to the actual reward account
+    ///                   for the DAO. If not then it's moved to the DAO itself
+    /// @return Whether the call was successful
+    function collectInheritedDAORewards(bool _toMembers) external returns (bool _success);
+
+
+    /// @notice Transfer reward tokens to another account
+    /// @param _to Address to be transfered the reward tokens.
+    /// @param _amountNum Nomerator of the proportion of rewardTokens to be transfered
+    /// @param _amountDen Denominator of the proportion of rewardTokens to be transfered
+    /// @return Whether the call was successful
+    function transferRewardTokens(address _to, uint _amountNum, uint _amountDen) external returns (bool _success);
+
+
     /// @notice Get my portion of the reward that was sent to `rewardAccount`
     /// @return Whether the call was successful
     function getMyReward() returns(bool _success);
@@ -664,22 +680,15 @@ contract DAO is DAOInterface, Token, TokenCreation {
 
 
         // Assign reward rights to new DAO
-        uint rewardTokenToBeMoved =
-            (balances[msg.sender] * p.splitData[0].rewardToken) /
-            p.splitData[0].totalSupply;
+        this.transferRewardTokens(p.splitData[0].newDAO, balances[msg.sender], p.splitData[0].totalSupply);
 
-        uint paidOutToBeMoved = DAOpaidOut[address(this)] * rewardTokenToBeMoved /
-            rewardToken[address(this)];
-
-        rewardToken[address(p.splitData[0].newDAO)] += rewardTokenToBeMoved;
-        if (rewardToken[address(this)] < rewardTokenToBeMoved)
-            throw;
-        rewardToken[address(this)] -= rewardTokenToBeMoved;
-
-        DAOpaidOut[address(p.splitData[0].newDAO)] += paidOutToBeMoved;
-        if (DAOpaidOut[address(this)] < paidOutToBeMoved)
-            throw;
-        DAOpaidOut[address(this)] -= paidOutToBeMoved;
+        // Transfer also reward tokens of all ancestors.
+        address daoAddress = privateCreation;
+        while (daoAddress != 0) {
+            DAO ancestorDAO = DAO(daoAddress);
+            ancestorDAO.transferRewardTokens(p.splitData[0].newDAO, balances[msg.sender], p.splitData[0].totalSupply);
+            daoAddress = ancestorDAO.privateCreation();
+        }
 
         // Burn DAO Tokens
         Transfer(msg.sender, 0, balances[msg.sender]);
@@ -727,6 +736,43 @@ contract DAO is DAOInterface, Token, TokenCreation {
                 throw;
         }
         DAOpaidOut[msg.sender] += reward;
+        return true;
+    }
+
+    function collectInheritedDAORewards(bool _toMembers) external noEther returns (bool _success) {
+        if (msg.sender != address(this))
+            throw;
+
+        address daoAddress = privateCreation;
+
+        while (daoAddress != 0) {
+            DAO ancestorDAO = DAO(daoAddress);
+            ancestorDAO.retrieveDAOReward(_toMembers);
+            daoAddress = ancestorDAO.privateCreation();
+        }
+
+        return true;
+    }
+
+    function transferRewardTokens(address _to, uint _amountNum, uint _amountDen) external noEther returns (bool _success) {
+
+        if (   (_amountDen == 0)
+            || (_amountNum > _amountDen))
+            throw;
+
+        if (_amountNum == 0)
+            return;
+
+        uint rewardTokensToTransfer = rewardToken[msg.sender] * _amountNum / _amountDen;
+
+        rewardToken[msg.sender] -= rewardTokensToTransfer;
+        rewardToken[_to] += rewardTokensToTransfer;
+
+        uint paidOutToBeMoved = DAOpaidOut[msg.sender] * _amountNum / _amountDen;
+
+        DAOpaidOut[msg.sender] += paidOutToBeMoved;
+        DAOpaidOut[_to] +=paidOutToBeMoved;
+
         return true;
     }
 
