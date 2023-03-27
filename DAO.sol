@@ -1,577 +1,401 @@
-/*
-This file is part of the DAO.
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
 
-The DAO is free software: you can redistribute it and/or modify
-it under the terms of the GNU lesser General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "./LandToken.sol";
+import "./Voting.sol";
 
-The DAO is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU lesser General Public License for more details.
+contract Dao is ERC721,Ownable {
 
-You should have received a copy of the GNU lesser General Public License
-along with the DAO.  If not, see <http://www.gnu.org/licenses/>.
-*/
+    LandToken public tokenLand; // Contrato TokenLand
+    Voting public voting; // Contrato Voting
+    mapping(address => uint256) public daoBalances; // Almacenamiento de balances de la DAO
+    mapping(address => bool) public daoOwners; // Almacenamiento de propietarios de la DAO
+    uint256 public totalDaoOwners; // Contador de propietarios de la DAO
+    uint256 public daoBankBalance; // Balance de la DAO en ethers
+    mapping(address => bool) public landOwners; // Almacenamiento de propietarios de land
+    mapping(address => uint256) public landOwnersVotingPower; // Almacenamiento del poder de voto de los propietarios de land
+    uint256 public totalLandOwners; // Contador de propietarios de land
+    mapping(address => bool) public registeredUsers; // Almacenamiento de usuarios registrados
+    mapping(address => uint256) public registeredUsersVotingPower; // Almacenamiento del poder de voto de los usuarios registrados
+    uint256 public totalRegisteredUsers; // Contador de usuarios registrados
+    uint256 public voteThreshold; // Umbral de votación requerido para aprobar una propuesta
+    Proposal[] public proposals; // Lista de propuestas
+    mapping(address => bool) public isMember;
 
+   // Evento que se emite cuando se depositan ethers en la DAO
+event Deposited(address indexed from, uint256 amount);
 
-/*
-Standard smart contract for a Decentralized Autonomous Organization (DAO)
-to automate organizational governance and decision-making.
-*/
+// Evento que se emite cuando se retiran ethers de la DAO
+event Withdrawn(address indexed to, uint256 amount);
 
-import "./TokenCreation.sol";
+// Evento que se emite cuando se transfieren ethers de la DAO a otra dirección
+event Transfered(address indexed to, uint256 amount);
 
-pragma solidity ^0.4.4;
+// Evento que se emite cuando se agrega un propietario a la DAO
+event DaoOwnerAdded(address indexed owner);
 
-contract DAOInterface {
-    // The minimum debate period that a generic proposal can have
-    uint constant minProposalDebatePeriod = 2 weeks;
-    // The minimum debate period that a split proposal can have
-    uint constant quorumHalvingPeriod = 25 weeks;
-    // Period after which a proposal is closed
-    // (used in the case `executeProposal` fails because it throws)
-    uint constant executeProposalPeriod = 10 days;
-    // Time for vote freeze. A proposal needs to have majority support before votingDeadline - preSupportTime
-    uint constant preSupportTime = 2 days;
-    // Denotes the maximum proposal deposit that can be given. It is given as
-    // a fraction of total Ether spent plus balance of the DAO
-    uint constant maxDepositDivisor = 100;
+// Evento que se emite cuando se remueve un propietario de la DAO
+event DaoOwnerRemoved(address indexed owner);
 
-    //Token contract
-    Token token;
+// Evento que se emite cuando se agrega un propietario de land
+event LandOwnerAdded(address indexed owner, uint256 votingPower);
 
-    // Proposals to spend the DAO's ether
-    Proposal[] public proposals;
-    // The quorum needed for each proposal is partially calculated by
-    // totalSupply / minQuorumDivisor
-    uint public minQuorumDivisor;
-    // The unix time of the last time quorum was reached on a proposal
-    uint public lastTimeMinQuorumMet;
+// Evento que se emite cuando se agrega un usuario registrado
+event RegisteredUserAdded(address indexed user, uint256 votingPower);
 
-    // Address of the curator
-    address public curator;
-    // The whitelist: List of addresses the DAO is allowed to send ether to
-    mapping (address => bool) public allowedRecipients;
+// Evento que se emite cuando se actualiza el poder de voto de un propietario de land
+event LandOwnerVotingPowerUpdated(address indexed owner, uint256 votingPower);
 
-    // Map of addresses blocked during a vote (not allowed to transfer DAO
-    // tokens). The address points to the proposal ID.
-    mapping (address => uint) public blocked;
+// Evento que se emite cuando se crea una propuesta
+event ProposalCreated(uint256 proposalId, string description, address indexed creator, uint256 landId);
 
-    // Map of addresses and proposal voted on by this address
-    mapping (address => uint[]) public votingRegister;
+// Evento que se emite cuando se vota en una propuesta
+event Voted(uint256 indexed id, address indexed voter, bool inSupport);
 
-    // The minimum deposit (in wei) required to submit any proposal that is not
-    // requesting a new Curator (no deposit is required for splits)
-    uint public proposalDeposit;
+// Evento que se emite cuando se ejecuta una propuesta
+event ProposalExecuted(uint256 proposalId, address indexed executor);
+event ProposalVoted(uint256 proposalId, address indexed voter, bool inFavor);
 
-    // the accumulated sum of all current proposal deposits
-    uint sumOfProposalDeposits;
-
-    // A proposal with `newCurator == false` represents a transaction
-    // to be issued by this DAO
-    // A proposal with `newCurator == true` represents a DAO split
-    struct Proposal {
-        // The address where the `amount` will go to if the proposal is accepted
-        address recipient;
-        // The amount to transfer to `recipient` if the proposal is accepted.
-        uint amount;
-        // A plain text description of the proposal
-        string description;
-        // A unix timestamp, denoting the end of the voting period
-        uint votingDeadline;
-        // True if the proposal's votes have yet to be counted, otherwise False
-        bool open;
-        // True if quorum has been reached, the votes have been counted, and
-        // the majority said yes
-        bool proposalPassed;
-        // A hash to check validity of a proposal
-        bytes32 proposalHash;
-        // Deposit in wei the creator added when submitting their proposal. It
-        // is taken from the msg.value of a newProposal call.
-        uint proposalDeposit;
-        // True if this proposal is to assign a new Curator
-        bool newCurator;
-        // true if more tokens are in favour of the proposal than opposed to it at
-        // least `preSupportTime` before the voting deadline
-        bool preSupport;
-        // Number of Tokens in favor of the proposal
-        uint yea;
-        // Number of Tokens opposed to the proposal
-        uint nay;
-        // Simple mapping to check if a shareholder has voted for it
-        mapping (address => bool) votedYes;
-        // Simple mapping to check if a shareholder has voted against it
-        mapping (address => bool) votedNo;
-        // Address of the shareholder who created the proposal
-        address creator;
-    }
-
-    /// @dev Constructor setting the Curator and the address
-    /// for the contract able to create another DAO as well as the parameters
-    /// for the DAO Token Creation
-    /// @param _curator The Curator
-    /// @param _daoCreator The contract able to (re)create this DAO
-    /// @param _proposalDeposit The deposit to be paid for a regular proposal
-    /// @param _minTokensToCreate Minimum required wei-equivalent tokens
-    ///        to be created for a successful DAO Token Creation
-    /// @param _closingTime Date (in Unix time) of the end of the DAO Token Creation
-    /// @param _parentDAO If zero the DAO Token Creation is open to public, a
-    /// non-zero address represents the parentDAO that can buy tokens in the
-    /// creation phase.
-    /// @param _tokenName The name that the DAO's token will have
-    /// @param _tokenSymbol The ticker symbol that this DAO token should have
-    /// @param _decimalPlaces The number of decimal places that the token is
-    ///        counted from.
-    // This is the constructor: it can not be overloaded so it is commented out
-    //  function DAO(
-        //  address _curator,
-        //  DAO_Creator _daoCreator,
-        //  uint _proposalDeposit,
-        //  uint _minTokensToCreate,
-        //  uint _closingTime,
-        //  address _parentDAO,
-        //  string _tokenName,
-        //  string _tokenSymbol,
-        //  uint8 _decimalPlaces
-    //  );
-
-    /// @notice donate without getting tokens
-    function() payable;
-
-    /// @notice `msg.sender` creates a proposal to send `_amount` Wei to
-    /// `_recipient` with the transaction data `_transactionData`. If
-    /// `_newCurator` is true, then this is a proposal that splits the
-    /// DAO and sets `_recipient` as the new DAO's Curator.
-    /// @param _recipient Address of the recipient of the proposed transaction
-    /// @param _amount Amount of wei to be sent with the proposed transaction
-    /// @param _description String describing the proposal
-    /// @param _transactionData Data of the proposed transaction
-    /// @param _debatingPeriod Time used for debating a proposal, at least 2
-    /// weeks for a regular proposal, 10 days for new Curator proposal
-    /// @param _newCurator Bool defining whether this proposal is about
-    /// a new Curator or not
-    /// @return The proposal ID. Needed for voting on the proposal
-    function newProposal(
-        address _recipient,
-        uint _amount,
-        string _description,
-        bytes _transactionData,
-        uint _debatingPeriod,
-        bool _newCurator
-    ) payable returns (uint _proposalID);
-
-    /// @notice Check that the proposal with the ID `_proposalID` matches the
-    /// transaction which sends `_amount` with data `_transactionData`
-    /// to `_recipient`
-    /// @param _proposalID The proposal ID
-    /// @param _recipient The recipient of the proposed transaction
-    /// @param _amount The amount of wei to be sent in the proposed transaction
-    /// @param _transactionData The data of the proposed transaction
-    /// @return Whether the proposal ID matches the transaction data or not
-    function checkProposalCode(
-        uint _proposalID,
-        address _recipient,
-        uint _amount,
-        bytes _transactionData
-    ) constant returns (bool _codeChecksOut);
-
-    /// @notice Vote on proposal `_proposalID` with `_supportsProposal`
-    /// @param _proposalID The proposal ID
-    /// @param _supportsProposal Yes/No - support of the proposal
-    function vote(uint _proposalID, bool _supportsProposal);
-
-    /// @notice Checks whether proposal `_proposalID` with transaction data
-    /// `_transactionData` has been voted for or rejected, and executes the
-    /// transaction in the case it has been voted for.
-    /// @param _proposalID The proposal ID
-    /// @param _transactionData The data of the proposed transaction
-    /// @return Whether the proposed transaction has been executed or not
-    function executeProposal(
-        uint _proposalID,
-        bytes _transactionData
-    ) returns (bool _success);
-
-
-    /// @dev can only be called by the DAO itself through a proposal
-    /// updates the contract of the DAO by sending all ether and rewardTokens
-    /// to the new DAO. The new DAO needs to be approved by the Curator
-    /// @param _newContract the address of the new contract
-    function newContract(address _newContract);
-
-
-    /// @notice Add a new possible recipient `_recipient` to the whitelist so
-    /// that the DAO can send transactions to them (using proposals)
-    /// @param _recipient New recipient address
-    /// @dev Can only be called by the current Curator
-    /// @return Whether successful or not
-    function changeAllowedRecipients(address _recipient, bool _allowed) external returns (bool _success);
-
-
-    /// @notice Change the minimum deposit required to submit a proposal
-    /// @param _proposalDeposit The new proposal deposit
-    /// @dev Can only be called by this DAO (through proposals with the
-    /// recipient being this DAO itself)
-    function changeProposalDeposit(uint _proposalDeposit) external;
-
-    /// @notice Doubles the 'minQuorumDivisor' in the case quorum has not been
-    /// achieved in 52 weeks
-    /// @return Whether the change was successful or not
-    function halveMinQuorum() returns (bool _success);
-
-    /// @return total number of proposals ever created
-    function numberOfProposals() constant returns (uint _numberOfProposals);
-
-    /// @param _account The address of the account which is checked.
-    /// @return Whether the account is blocked (not allowed to transfer tokens) or not.
-    function getOrModifyBlocked(address _account) internal returns (bool);
-
-    /// @notice If the caller is blocked by a proposal whose voting deadline
-    /// has exprired then unblock him.
-    /// @return Whether the account is blocked (not allowed to transfer tokens) or not.
-    function unblockMe() returns (bool);
-
-    event ProposalAdded(
-        uint indexed proposalID,
-        address recipient,
-        uint amount,
-        string description
-    );
-    event Voted(uint indexed proposalID, bool position, address indexed voter);
-    event ProposalTallied(uint indexed proposalID, bool result, uint quorum);
-    event AllowedRecipientChanged(address indexed _recipient, bool _allowed);
+// Estructura de una propuesta
+struct Proposal {
+    string title; // Título de la propuesta
+    string description; // Descripción de la propuesta
+    address payable recipient; // Dirección que recibirá los fondos en caso de ser aprobada la propuesta
+    uint256 amount; // Monto en ethers de la propuesta
+    uint256 votesFor; // Votos a favor de la propuesta
+    uint256 votesAgainst; // Votos en contra de la propuesta
+    bool executed; // Indica si la propuesta ha sido ejecutada
+    bool exists; // Indica si la propuesta existe
+    mapping(address => bool) voted;
+    
 }
 
-// The DAO contract itself
-contract DAO is DAOInterface{
 
-    // Modifier that allows only shareholders to vote and create new proposals
-    modifier onlyTokenholders {
-        if (token.balanceOf(msg.sender) == 0) throw;
-            _;
+    // Función para crear una nueva propuesta
+function createProposal(string memory _description, address _proposer, uint256 _landId) public onlyMembers {
+    require(_landId > 0, "Land ID must be greater than 0");
+    proposals.push(Proposal({
+        id: proposalCounter,
+        description: _description,
+        proposer: _proposer,
+        landId: _landId,
+        voteCount: 0,
+        status: ProposalStatus.Pending
+    }));
+
+    uint256 proposalId = proposalCounter;
+    proposalCounter++;
+
+    emit ProposalCreated(proposalId, _description, _proposer, _landId);
+}
+    modifier onlyMembers() {
+    require(isMember[msg.sender], "Caller is not a member of the DAO");
+    _;
+}
+
+    
+    // Función para calcular el resultado de una propuesta
+    function calculateProposalResult(uint256 _proposalId) public {
+        require(proposals[_proposalId].exists, "Proposal does not exist"); // Verifica que la propuesta exista
+        require(!proposals[_proposalId].executed, "Proposal already executed"); // Verifica que la propuesta no haya sido ejecutada
+        if (proposals[_proposalId].totalVotes < voteThreshold) { // Si no se ha alcanzado el umbral de votación
+            proposals[_proposalId].result = ProposalResult.Pending; // La propuesta queda pendiente
+        } else if (proposals[_proposalId].votesFor > proposals[_proposalId].votesAgainst) { // Si hay más votos a favor que en contra
+            proposals[_proposalId].result = ProposalResult.Approved; // La propuesta es aprobada
+        } else { // Si hay más votos en contra o la misma cantidad de votos a favor y en contra
+            proposals[_proposalId].result = ProposalResult.Rejected; // La propuesta es rechazada
+            }
+        emit ProposalResultCalculated(_proposalId, proposals[_proposalId].result); // Emite el evento correspondiente
     }
-
-    function DAO(
-        address _curator,
-        uint _proposalDeposit,
-        Token _token
-    )  {
-        token = _token;
-        curator = _curator;
-        proposalDeposit = _proposalDeposit;
-        lastTimeMinQuorumMet = now;
-        minQuorumDivisor = 7; // sets the minimal quorum to 14.3%
-        proposals.length = 1; // avoids a proposal with ID 0 because it is used
-
-        allowedRecipients[address(this)] = true;
-        allowedRecipients[curator] = true;
-    }
-
-    function() payable {
-    }
-
-    function newProposal(
-        address _recipient,
-        uint _amount,
-        string _description,
-        bytes _transactionData,
-        uint64 _debatingPeriod
-    ) onlyTokenholders payable returns (uint _proposalID) {
-
-        if (!allowedRecipients[_recipient]
-            || _debatingPeriod < minProposalDebatePeriod
-            || _debatingPeriod > 8 weeks
-            || msg.value < proposalDeposit
-            || msg.sender == address(this) //to prevent a 51% attacker to convert the ether into deposit
-            )
-                throw;
-
-        // to prevent curator from halving quorum before first proposal
-        if (proposals.length == 1) // initial length is 1 (see constructor)
-            lastTimeMinQuorumMet = now;
-
-        _proposalID = proposals.length++;
-        Proposal p = proposals[_proposalID];
-        p.recipient = _recipient;
-        p.amount = _amount;
-        p.description = _description;
-        p.proposalHash = sha3(_recipient, _amount, _transactionData);
-        p.votingDeadline = now + _debatingPeriod;
-        p.open = true;
-        //p.proposalPassed = False; // that's default
-        p.creator = msg.sender;
-        p.proposalDeposit = msg.value;
-
-        sumOfProposalDeposits += msg.value;
-
-        ProposalAdded(
-            _proposalID,
-            _recipient,
-            _amount,
-            _description
-        );
-    }
-
-    function checkProposalCode(
-        uint _proposalID,
-        address _recipient,
-        uint _amount,
-        bytes _transactionData
-    ) constant returns (bool _codeChecksOut) {
-        Proposal p = proposals[_proposalID];
-        return p.proposalHash == sha3(_recipient, _amount, _transactionData);
-    }
-
-    function vote(uint _proposalID, bool _supportsProposal) {
-
-        Proposal p = proposals[_proposalID];
-
-        unVote(_proposalID);
-
-        if (_supportsProposal) {
-            p.yea += token.balanceOf(msg.sender);
-            p.votedYes[msg.sender] = true;
+    // Función para obtener el estado actual de una propuesta
+    function getProposalState(uint256 _proposalId) public view returns (ProposalState) {
+        require(proposals[_proposalId].exists, "Proposal does not exist"); // Verifica que la propuesta exista
+        if (proposals[_proposalId].executed) {
+            return ProposalState.Executed; // Si la propuesta ha sido ejecutada, devuelve el estado "Ejecutada"
+        } else if (isProposalApproved(_proposalId)) {
+            return ProposalState.Approved; // Si la propuesta ha sido aprobada, devuelve el estado "Aprobada"
         } else {
-            p.nay += token.balanceOf(msg.sender);
-            p.votedNo[msg.sender] = true;
-        }
-
-        if (blocked[msg.sender] == 0) {
-            blocked[msg.sender] = _proposalID;
-        } else if (p.votingDeadline > proposals[blocked[msg.sender]].votingDeadline) {
-            // this proposal's voting deadline is further into the future than
-            // the proposal that blocks the sender so make it the blocker
-            blocked[msg.sender] = _proposalID;
-        }
-
-        votingRegister[msg.sender].push(_proposalID);
-        Voted(_proposalID, _supportsProposal, msg.sender);
-    }
-
-    function unVote(uint _proposalID){
-        Proposal p = proposals[_proposalID];
-
-        if (now >= p.votingDeadline) {
-            throw;
-        }
-
-        if (p.votedYes[msg.sender]) {
-            p.yea -= token.balanceOf(msg.sender);
-            p.votedYes[msg.sender] = false;
-        }
-
-        if (p.votedNo[msg.sender]) {
-            p.nay -= token.balanceOf(msg.sender);
-            p.votedNo[msg.sender] = false;
+            return ProposalState.Pending; // Si la propuesta no ha sido aprobada ni ejecutada, devuelve el estado "Pendiente"
         }
     }
 
-    function unVoteAll() {
-        // DANGEROUS loop with dynamic length - needs improvement
-        for (uint i = 0; i < votingRegister[msg.sender].length; i++) {
-            Proposal p = proposals[votingRegister[msg.sender][i]];
-            if (now < p.votingDeadline)
-                unVote(i);
+    // Función para ejecutar una propuesta
+    function executeProposal(uint256 _proposalId) public onlyOwner {
+        Proposal storage proposal = proposals[_proposalId];
+        require(proposal.status == ProposalStatus.Accepted, "Proposal has not been accepted");
+
+        if (keccak256(abi.encodePacked(proposal.description)) == keccak256(abi.encodePacked("Create new land"))) {
+            // Ejecutar acciones para la creación de una nueva tierra
+        } else if (keccak256(abi.encodePacked(proposal.description)) == keccak256(abi.encodePacked("Veto land for sale"))) {
+            LandToken landTokenContract = LandToken(landToken);
+            landTokenContract.vetoLand(proposal.landId);
+        } else if (keccak256(abi.encodePacked(proposal.description)) == keccak256(abi.encodePacked("Set land penalty"))) {
+            // Ejecutar acciones para establecer una penalización en una tierra
         }
 
-        votingRegister[msg.sender].length = 0;
-        blocked[msg.sender] = 0;
+        proposal.status = ProposalStatus.Executed;
+        emit ProposalExecuted(_proposalId);
+    }
+    // Función para ejecutar una propuesta aprobada
+    function executeApprovedProposal(uint256 _proposalId) public onlyOwner {
+        require(proposals[_proposalId].exists, "Proposal does not exist"); // Verifica que la propuesta exista
+        require(!proposals[_proposalId].executed, "Proposal already executed"); // Verifica que la propuesta no haya sido ejecutada
+        require(proposals[_proposalId].result == ProposalResult.Approved, "Proposal not approved"); // Verifica que la propuesta haya sido aprobada
+    }
+
+    // Función para obtener la información completa de una propuesta
+    function getProposal(uint256 _proposalId) public view returns (Proposal memory) {
+        require(proposals[_proposalId].exists, "Proposal does not exist"); // Verifica que la propuesta exista
+        return proposals[_proposalId];
+    }
+    // Función para obtener el número total de propuestas creadas
+    function getTotalProposals() public view returns (uint256) {
+        return proposals.length;
+    }
+    // Función para actualizar el poder de voto de un usuario registrado
+function updateRegisteredUserVotingPower(address _user, uint256 _votingPower) public onlyOwner {
+    require(registeredUsers[_user], "Not a registered user"); // Verifica que el usuario sea un usuario registrado
+    registeredUsersVotingPower[_user] = _votingPower; // Actualiza el poder de voto del usuario registrado
+}
+
+// Función para eliminar un usuario registrado
+function removeRegisteredUser(address _user) public onlyOwner {
+    require(registeredUsers[_user], "Not a registered user"); // Verifica que el usuario sea un usuario registrado
+    registeredUsers[_user] = false; // Elimina el usuario registrado
+    totalRegisteredUsers--; // Decrementa el total de usuarios registrados
+    registeredUsersVotingPower[_user] = 0; // Establece el poder de voto del usuario registrado en 0
+}
+
+
+// Función para obtener el poder de voto de un usuario registrado
+function getRegisteredUserVotingPower(address _user) public view returns (uint256) {
+    require(registeredUsers[_user], "User not registered"); // Verifica que el usuario esté registrado
+    return registeredUsersVotingPower[_user]; // Devuelve el poder de voto del usuario registrado
+}
+
+// Función para obtener el poder de voto de un propietario de land
+function getLandOwnerVotingPower(address _landOwner) public view returns (uint256) {
+    require(landOwners[_landOwner], "Not a land owner"); // Verifica que el usuario sea propietario de land
+    return landOwnersVotingPower[_landOwner]; // Devuelve el poder de voto del propietario de land
+}
+
+// Función para obtener el poder de voto de un propietario de la DAO
+function getDaoOwnerVotingPower(address _daoOwner) public view returns (uint256) {
+    require(daoOwners[_daoOwner], "Not a DAO owner"); // Verifica que el usuario sea propietario de la DAO
+    return 1; // Devuelve un poder de voto fijo de 1 para los propietarios de la DAO
+}
+
+// Función para obtener el poder de voto de un usuario en una propuesta
+function getVotingPowerInProposal(address _user, uint256 _proposalId) public view returns (uint256) {
+    uint256 votingPower = 0; // Inicializa el poder de voto en 0
+    if (registeredUsers[_user]) { // Si el usuario es un usuario registrado
+        votingPower = registeredUsersVotingPower[_user]; // Agrega su poder de voto
+    }
+    if (landOwners[_user]) { // Si el usuario es propietario de land
+        votingPower += landOwnersVotingPower[_user]; // Agrega su poder de voto
+    }
+    if (daoOwners[_user]) { // Si el usuario es propietario de la DAO
+        votingPower += 1; // Agrega un poder de voto fijo de 1
+    }
+    if (votedForProposal[_user][_proposalId]) { // Si el usuario ha votado a favor de la propuesta
+        votingPower -= registeredUsersVotingPower[_user]; // Resta su poder de voto de usuario registrado
+        votingPower -= landOwnersVotingPower[_user]; // Resta su poder de voto de propietario de land
+        votingPower -= 1; // Resta su poder de voto fijo de propietario de la DAO
+    }
+    if (votedAgainstProposal[_user][_proposalId]) { // Si el usuario ha votado en contra de la propuesta
+        votingPower = 0; // El poder de voto es 0
+    }
+    return votingPower; // Devuelve el poder de voto del usuario en la propuesta
+}
+
+
+    // Función para votar en una propuesta
+function vote(uint256 _proposalId, bool _vote) public onlyMembers {
+    Proposal storage proposal = proposals[_proposalId];
+    require(proposal.status == ProposalStatus.Pending, "Proposal is not pending");
+    require(!hasVoted[msg.sender][_proposalId], "Member has already voted on this proposal");
+    
+    LandToken landTokenContract = LandToken(landToken);
+    require(landTokenContract.ownerOf(proposal.landId) == proposal.proposer, "Proposer is not the owner of the land");
+    
+    hasVoted[msg.sender][_proposalId] = true;
+    proposal.voteCount += (_vote ? 1 : 0);
+
+    if (proposal.voteCount >= quorum) {
+        proposal.status = ProposalStatus.Accepted;
+        emit ProposalAccepted(_proposalId);
+    }
+}
+    // Función para calcular el poder de voto total de un usuario
+    function calculateVotingPower(address _user) public {
+    uint256 totalVotingPower = 0;
+        if (daoOwners[_user]) { // Si el usuario es propietario de la DAO, su poder de voto es igual a 1
+        totalVotingPower = 1;
+        }
+        if (landOwners[_user]) { // Si el usuario es propietario de land, su poder de voto es igual a la cantidad de land que posee
+        totalVotingPower += landOwnersVotingPower[_user];
+        }
+        if (registeredUsers[_user]) { // Si el usuario es un usuario registrado, su poder de voto es igual a 1
+        totalVotingPower += registeredUsersVotingPower[_user];
+        }
+        votingPower[_user] = totalVotingPower; // Actualiza el poder de voto del usuario
+    }
+
+    // Función para eliminar una propuesta
+    function deleteProposal(uint256 _proposalId) public onlyOwner {
+        require(proposals[_proposalId].exists, "Proposal does not exist"); // Verifica que la propuesta exista
+        delete proposals[_proposalId]; // Elimina la propuesta del array de propuestas
+        emit ProposalDeleted(_proposalId); // Emite el evento correspondiente
+    }
+
+    // Función para obtener el poder de voto total de un usuario
+    function getVotingPower(address _user) public view returns (uint256) {
+        return votingPower[_user];
+    }
+
+    // Función para obtener el número total de usuarios registrados
+    function getTotalRegisteredUsers() public view returns (uint256) {
+        return totalRegisteredUsers;
     }
     
-    function verifyPreSupport(uint _proposalID) {
-        Proposal p = proposals[_proposalID];
-        if (now < p.votingDeadline - preSupportTime) {
-            if (p.yea > p.nay) {
-                p.preSupport = true;
-            }
-            else
-                p.preSupport = false;
-        }
+   
+    function canVote(address _user, uint256 _proposalId) public view returns (bool) {
+    if (!registeredUsers[_user]) { // Verifica que el usuario esté registrado
+        return false;
     }
-
-    function executeProposal(
-        uint _proposalID,
-        bytes _transactionData
-    ) returns (bool _success) {
-
-        Proposal p = proposals[_proposalID];
-
-        // If we are over deadline and waiting period, assert proposal is closed
-        if (p.open && now > p.votingDeadline + executeProposalPeriod) {
-            closeProposal(_proposalID);
-            return;
-        }
-
-        // Check if the proposal can be executed
-        if (now < p.votingDeadline  // has the voting deadline arrived?
-            // Have the votes been counted?
-            || !p.open
-            || p.proposalPassed // anyone trying to call us recursively?
-            // Does the transaction code match the proposal?
-            || p.proposalHash != sha3(p.recipient, p.amount, _transactionData)
-            )
-                throw;
-
-        // If the curator removed the recipient from the whitelist, close the proposal
-        // in order to free the deposit and allow unblocking of voters
-        if (!allowedRecipients[p.recipient]) {
-            closeProposal(_proposalID);
-            // the return value is not checked to prevent a malicious creator
-            // from delaying the closing of the proposal
-            p.creator.send(p.proposalDeposit);
-            return;
-        }
-
-        bool proposalCheck = true;
-
-        if (p.amount > actualBalance() || p.preSupport == false)
-            proposalCheck = false;
-
-        uint quorum = p.yea;
-
-        // require max quorum for calling newContract()
-        if (_transactionData.length >= 4 && _transactionData[0] == 0x68
-            && _transactionData[1] == 0x37 && _transactionData[2] == 0xff
-            && _transactionData[3] == 0x1e
-            && quorum < minQuorum(actualBalance())
-            )
-                proposalCheck = false;
-
-        if (quorum >= minQuorum(p.amount)) {
-            if (!p.creator.send(p.proposalDeposit))
-                throw;
-
-            lastTimeMinQuorumMet = now;
-            // set the minQuorum to 14.3% again, in the case it has been reached
-            if (quorum > token.totalSupply() / 7)
-                minQuorumDivisor = 7;
-        }
-
-        // Execute result
-        if (quorum >= minQuorum(p.amount) && p.yea > p.nay && proposalCheck) {
-            // we are setting this here before the CALL() value transfer to
-            // assure that in the case of a malicious recipient contract trying
-            // to call executeProposal() recursively money can't be transferred
-            // multiple times out of the DAO
-            p.proposalPassed = true;
-
-            // this call is as generic as any transaction. It sends all gas and
-            // can do everything a transaction can do. It can be used to reenter
-            // the DAO. The `p.proposalPassed` variable prevents the call from 
-            // reaching this line again
-            if (!p.recipient.call.value(p.amount)(_transactionData))
-                throw;
-
-            _success = true;
-        }
-
-        closeProposal(_proposalID);
-
-        // Initiate event
-        ProposalTallied(_proposalID, _success, quorum);
+    if (proposals[_proposalId].exists == false) { // Verifica que la propuesta exista
+        return false;
     }
-
-
-    function closeProposal(uint _proposalID) internal {
-        Proposal p = proposals[_proposalID];
-        if (p.open)
-            sumOfProposalDeposits -= p.proposalDeposit;
-        p.open = false;
+    if (proposals[_proposalId].executed) { // Verifica que la propuesta no haya sido ejecutada
+        return false;
     }
-/*
-Since it is possible to continuously send ETH to the contract and create tokens,
-this withdraw functions is flawed and needs to be replaced by an improved version
-    function withdraw() onlyTokenholders returns (bool _success) {
-
-        unVoteAll();
-
-        // Move ether
-        uint senderBalance = balances[msg.sender];
-        // TODO this is flawed
-        uint fundsToBeMoved = (senderBalance * actualBalance()) / totalSupply;
-        balances[msg.sender] = 0;
-        msg.sender.send(fundsToBeMoved);
-
-        // Burn DAO Tokens
-        totalSupply -= senderBalance;
-        // event for light client notification
-        Transfer(msg.sender, 0, senderBalance);
+    if (votedForProposal[_user][_proposalId] || votedAgainstProposal[_user][_proposalId]) { // Verifica que el usuario no haya votado previamente
+        return false;
+    }
+    if (daoOwners[_user]) { // Si el usuario es propietario de la DAO, puede votar
         return true;
     }
-*/
-
-    function newContract(address _newContract){
-        if (msg.sender != address(this) || !allowedRecipients[_newContract]) return;
-        // move all ether
-        if (!_newContract.call.value(address(this).balance)()) {
-            throw;
-        }
-    }
-
-    function changeProposalDeposit(uint _proposalDeposit) external {
-        if (msg.sender != address(this) || _proposalDeposit > (actualBalance())
-            / maxDepositDivisor) {
-            throw;
-        }
-        proposalDeposit = _proposalDeposit;
-    }
-
-
-    function changeAllowedRecipients(address _recipient, bool _allowed) external returns (bool _success) {
-        if (msg.sender != curator)
-            throw;
-        allowedRecipients[_recipient] = _allowed;
-        AllowedRecipientChanged(_recipient, _allowed);
-        return true;
-    }
-
-
-    function actualBalance() constant returns (uint _actualBalance) {
-        return this.balance - sumOfProposalDeposits;
-    }
-
-
-    function minQuorum(uint _value) internal constant returns (uint _minQuorum) {
-        // minimum of 14.3% and maximum of 47.6%
-        return token.totalSupply() / minQuorumDivisor +
-            (_value * token.totalSupply()) / (3 * (actualBalance()));
-    }
-
-
-    function halveMinQuorum() returns (bool _success) {
-        // this can only be called after `quorumHalvingPeriod` has passed or at anytime after
-        // fueling by the curator with a delay of at least `minProposalDebatePeriod`
-        // between the calls
-        if ((lastTimeMinQuorumMet < (now - quorumHalvingPeriod) || msg.sender == curator)
-            && lastTimeMinQuorumMet < (now - minProposalDebatePeriod)
-            && proposals.length > 1) {
-            lastTimeMinQuorumMet = now;
-            minQuorumDivisor *= 2;
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    function numberOfProposals() constant returns (uint _numberOfProposals) {
-        // Don't count index 0. It's used by getOrModifyBlocked() and exists from start
-        return proposals.length - 1;
-    }
-
-    function getOrModifyBlocked(address _account) internal returns (bool) {
-        if (blocked[_account] == 0)
-            return false;
-        Proposal p = proposals[blocked[_account]];
-        if (!p.open) {
-            blocked[_account] = 0;
-            return false;
-        } else {
+    if (landOwners[_user]) { // Si el usuario es propietario de land, su poder de voto es igual a la cantidad de land que posee
+        if (landOwnersVotingPower[_user] > 0) {
             return true;
         }
     }
+    if (registeredUsers[_user]) { // Si el usuario es un usuario registrado, su poder de voto es igual a 1
+        if (registeredUsersVotingPower[_user] > 0) {
+            return true;
+        }
+    }
+    return false; // Si el usuario no cumple ninguna de las condiciones anteriores, no puede votar
+}
 
-    function unblockMe() returns (bool) {
-        return getOrModifyBlocked(msg.sender);
+
+
+    // Función para obtener el balance de la DAO en ethers
+    function getDaoBankBalance() public view returns (uint256) {
+        return daoBankBalance;
+    }
+
+    // Función para obtener el balance de un propietario en la DAO
+    function getDaoBalance(address _owner) public view returns (uint256) {
+        return daoBalances[_owner];
+    }
+
+    // Función para obtener la cantidad de propietarios de la DAO
+    function getTotalDaoOwners() public view returns (uint256) {
+        return totalDaoOwners;
+    }
+
+    // Función para obtener la cantidad de propietarios de land
+    function getTotalLandOwners() public view returns (uint256) {
+        return totalLandOwners;
+    }
+
+    // Función para obtener la cantidad de votos a favor de una propuesta
+    function getVotesForProposal(uint256 _proposalId) public view returns (uint256) {
+        return proposals[_proposalId].votesFor;
+    }
+
+    // Función para obtener la cantidad de votos en contra de una propuesta
+    function getVotesAgainstProposal(uint256 _proposalId) public view returns (uint256) {
+        return proposals[_proposalId].votesAgainst;
+    }
+
+    
+
+    // Función para obtener el número total de propuestas creadas
+    function getTotalProposals() public view returns (uint256) {
+        return proposals.length;
+    }
+        // Función para verificar si un usuario tiene derecho a votar en una propuesta
+   
+
+    // Función para obtener la cantidad total de votos de una propuesta
+    function getTotalVotesForProposal(uint256 _proposalId) public view returns (uint256) {
+        return proposals[_proposalId].totalVotes;
+    }
+
+    // Función para obtener el umbral de votación requerido para aprobar una propuesta
+    function getVoteThreshold() public view returns (uint256) {
+        return voteThreshold;
+    }
+
+    // Función para agregar una nueva propuesta
+    function addProposal(string memory _description, address _recipient, uint256 _amount) public returns (uint256) {
+        uint256 proposalId = proposals.length; // El ID de la propuesta será el largo del arreglo de propuestas
+        proposals.push(Proposal({ // Crea la nueva propuesta
+            id: proposalId,
+            exists: true,
+            description: _description,
+            recipient: _recipient,
+            amount: _amount,
+            votesFor: 0,
+            votesAgainst: 0,
+            totalVotes: 0,
+            executed: false
+        }));
+        emit ProposalAdded(proposalId, _description); // Emite el evento correspondiente
+        return proposalId; // Devuelve el ID de la nueva propuesta
+    }
+    // Función para votar a favor de una propuesta
+    function voteForProposal(uint256 _proposalId) public {
+        require(canVote(msg.sender, _proposalId), "Cannot vote");
+
+        votedForProposal[msg.sender][_proposalId] = true; // Marca al usuario como que ha votado a favor de la propuesta
+        proposals[_proposalId].votesFor += votingPower[msg.sender]; // Agrega el poder de voto del usuario a los votos a favor de la propuesta
+        proposals[_proposalId].totalVotes += votingPower[msg.sender]; // Agrega el poder de voto del usuario al total de votos de la propuesta
+
+        // Verifica si la propuesta ha alcanzado el umbral de votación requerido para aprobarse
+        if (proposals[_proposalId].votesFor >= voteThreshold) {
+            executeProposal(_proposalId); // Ejecuta la propuesta
+        }
+
+        emit VotedForProposal(msg.sender, _proposalId); // Emite el evento correspondiente
+    }
+
+    // Función para votar en contra de una propuesta
+    function voteAgainstProposal(uint256 _proposalId) public {
+        require(votingPower[msg.sender] > 0, "No voting power"); // Verifica que el usuario tenga poder de voto
+        require(!proposals[_proposalId].executed, "Proposal already executed"); // Verifica que la propuesta no haya sido ejecutada
+        require(!votedForProposal[msg.sender][_proposalId], "Already voted for proposal"); // Verifica que el usuario no haya votado previamente por la propuesta
+        require(votedAgainstProposal[msg.sender][_proposalId] == false, "Already voted against proposal"); // Verifica que el usuario no haya votado previamente en contra de la propuesta
+
+        votedAgainstProposal[msg.sender][_proposalId] = true; // Marca al usuario como que ha votado en contra de la propuesta
+        proposals[_proposalId].votesAgainst += votingPower[msg.sender]; // Agrega el poder de voto del usuario a los votos en contra de la propuesta
+        proposals[_proposalId].totalVotes += votingPower[msg.sender]; // Agrega el poder de voto del usuario al total de votos de la propuesta
+
+        // Verifica si la propuesta ha sido rechazada debido a la cantidad de votos en contra
+        if (proposals[_proposalId].votesAgainst >= voteThreshold) {
+            proposals[_proposalId].executed = true; // Marca la propuesta como ejecutada
+            emit ProposalRejected(_proposalId); // Emite el evento correspondiente
+            return;
+        }
+
+        emit VotedAgainstProposal(msg.sender, _proposalId); // Emite el evento correspondiente
+    }
+     // Función para obtener la cantidad total de votos en contra de una propuesta
+    function getTotalVotesAgainstProposal(uint256 _proposalId) public view returns (uint256) {
+        return proposals[_proposalId].votesAgainst;
     }
 }
